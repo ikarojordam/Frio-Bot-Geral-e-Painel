@@ -253,3 +253,23 @@ body > * { position:relative; }
 .app-shell, .auth-shell, .legal-shell, main, .main-content, .content {
   background-color:transparent;
 }
+
+
+/* Fundo cósmico responsivo: mesma arte, enquadramento adaptado por dispositivo. */
+html, body { min-height:100%; background-color:#040711 !important; }
+body {
+  background-image: linear-gradient(180deg, rgba(3,7,18,.28), rgba(3,7,18,.52)), url("/assets/space-background.jpeg") !important;
+  background-position:center center !important; background-repeat:no-repeat !important;
+  background-size:cover !important; background-attachment:fixed !important;
+}
+@media (max-width: 767px) {
+  body { background-position:center top !important; background-size:auto 100vh !important; background-attachment:scroll !important; background-repeat:repeat-y !important; }
+}
+@media (min-width: 768px) {
+  body { background-position:center center !important; background-size:cover !important; background-attachment:fixed !important; }
+}
+
+
+/* Performance: mídia responsiva sem alterar a identidade visual. */
+img, picture, video, canvas, svg { max-width:100%; }
+img { height:auto; }

@@ -539,6 +539,7 @@ async function bootApp() {
       history.replaceState(null, '', location.pathname + location.search);
     }
 
+    closeNotifDrawer();
     refreshIcons();
     await navigate(startPage, startParam);
     loadNotifications(true);
@@ -567,6 +568,16 @@ function bindGlobal() {
   $('btnMarkAllReadDrawer')?.addEventListener('click', markAllNotifsRead);
 
   document.addEventListener('click', (e) => {
+    // Fechamento delegado para o drawer funcionar também em Safari/iOS.
+    const closeDrawerButton = e.target.closest('#btnCloseDrawer');
+    if (closeDrawerButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeNotifDrawer();
+      return;
+    }
+    const drawer = $('notifDrawer');
+    if (drawer && e.target === drawer) closeNotifDrawer();
     const closer = e.target.closest('[data-close]');
     if (closer) { e.preventDefault(); closeModal(closer.dataset.close); return; }
     if (e.target.classList?.contains('modal') && e.target.classList.contains('active')) {
