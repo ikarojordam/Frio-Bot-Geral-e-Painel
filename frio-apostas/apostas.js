@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// 🐦‍⬛ BACK E-ESPORTES — BACK BOT — apostas.js — v1.2.0
+// 🐦‍⬛ BACK E-ESPORTES — BACK BOT — apostas.js — v1.3.0
 // PARTE 1/7: Base, Client, Config, Permissões, FF Config, PIX
 // ═══════════════════════════════════════════════════════════
 require('dotenv').config();
@@ -24,7 +24,7 @@ const { createClient } = require('@supabase/supabase-js');
 const QRCode = require('qrcode');
 
 // ═══ VERSÃO ═══
-const BOT_VERSION = 'v1.2.0';
+const BOT_VERSION = 'v1.3.0';
 
 // ═══ MARCA ═══
 const ORG_NAME  = 'BACK E-ESPORTES';
@@ -120,7 +120,7 @@ const FF_COIN_DEFAULTS = [
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
   auth: { persistSession: false },
   global: {
-    headers: { 'X-Client-Info': 'back-bot/1.2.0' },
+    headers: { 'X-Client-Info': 'back-bot/1.3.0' },
     fetch: (url, opts = {}) => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
@@ -1323,6 +1323,7 @@ async function ffConfigPanel(gid) {
         new ButtonBuilder().setCustomId('ffcfg:panel:valores').setLabel('Valores').setEmoji('💰').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('ffcfg:panel:mediadores').setLabel('Mediadores').setEmoji('🛡️').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('ffcfg:panel:automacoes').setLabel('Automações').setEmoji('⚙️').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('ffcfg:panel:mensagens').setLabel('Auto mensagens').setEmoji('💬').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('ffcfg:panel:loja_coins').setLabel('Loja Coins').setEmoji('🪙').setStyle(ButtonStyle.Success),
       ),
       new ActionRowBuilder().addComponents(
@@ -1445,6 +1446,103 @@ async function ffPanelPix(gid) {
   ));
 
   return { embeds: [e], components: rows };
+}
+
+
+// ═══ AUTO MENSAGENS (até 100 por servidor) ═══
+const AUTO_MESSAGE_LIMIT = 100;
+const AUTO_MESSAGE_MIN_INTERVAL = 5;
+const _autoMessageTickLock = new Set();
+
+async function ffGetAutoMessages(gid) {
+  const { data, error } = await supabase.from('ff_auto_messages')
+    .select('*').eq('guild_id', gid).order('created_at', { ascending: false }).limit(AUTO_MESSAGE_LIMIT);
+  if (error) throw new Error(`Não consegui carregar auto mensagens. Execute a migração SQL incluída no ZIP. (${error.message})`);
+  return data || [];
+}
+
+async function ffPanelAutoMensagens(gid) {
+  let list = [];
+  let dbError = null;
+  try { list = await ffGetAutoMessages(gid); } catch (e) { dbError = e.message; }
+  const active = list.filter(x => x.enabled).length;
+  const e = new EmbedBuilder().setTitle('💬 Auto mensagens').setColor('#5865F2')
+    .setDescription(dbError
+      ? `⚠️ **Banco ainda não configurado**\n${dbError}\n\nAbra \`MIGRACAO_AUTO_MENSAGENS.sql\` e execute no SQL Editor do Supabase.`
+      : `Crie até **${AUTO_MESSAGE_LIMIT}** mensagens automáticas por servidor.\nFormato **Say** (texto) ou **Embed**, canal, cargo opcional e intervalo configurável.\n\n**Cadastradas:** ${list.length}/${AUTO_MESSAGE_LIMIT} · **Ativas:** ${active}`)
+    .setTimestamp();
+  if (list.length) {
+    e.addFields({ name: 'Mensagens recentes', value: list.slice(0, 10).map((x, idx) =>
+      `**${idx + 1}.** ${x.enabled ? '🟢' : '⚪'} ${x.message_type === 'embed' ? 'Embed' : 'Say'} · <#${x.channel_id}> · a cada ${x.interval_minutes} min\n> ${(x.content || '').replace(/\s+/g, ' ').slice(0, 90)}${(x.content || '').length > 90 ? '…' : ''}`
+    ).join('\n').slice(0, 1024) });
+  }
+  const rows = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ffcfg:msg_add').setLabel('Criar mensagem').setEmoji('➕').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('ffcfg:msg_edit').setLabel('Editar').setEmoji('✏️').setStyle(ButtonStyle.Primary).setDisabled(!list.length || !!dbError),
+      new ButtonBuilder().setCustomId('ffcfg:msg_toggle').setLabel('Ativar/Desativar').setEmoji('🔁').setStyle(ButtonStyle.Secondary).setDisabled(!list.length || !!dbError),
+      new ButtonBuilder().setCustomId('ffcfg:msg_delete').setLabel('Excluir').setEmoji('🗑️').setStyle(ButtonStyle.Danger).setDisabled(!list.length || !!dbError),
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ffcfg:back').setLabel('Voltar').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+    ),
+  ];
+  return { embeds: [e], components: rows };
+}
+
+function ffAutoMessageModal(existing = null, selectedChannelId = null) {
+  const modal = new ModalBuilder()
+    .setCustomId(existing ? `ffcfg_modal:auto_edit:${existing.id}` : 'ffcfg_modal:auto_add')
+    .setTitle(existing ? 'Editar auto mensagem' : 'Criar auto mensagem');
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('channel_id').setLabel('ID do canal de texto').setStyle(TextInputStyle.Short).setValue(existing?.channel_id || selectedChannelId || '').setRequired(true).setMaxLength(25)),
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('type').setLabel('Tipo: say ou embed').setStyle(TextInputStyle.Short).setValue(existing?.message_type || 'say').setRequired(true).setMaxLength(5)),
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('content').setLabel('Mensagem (use {user} se quiser)').setStyle(TextInputStyle.Paragraph).setValue(existing?.content || '').setRequired(true).setMaxLength(4000)),
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('role_id').setLabel('ID do cargo para mencionar (opcional)').setStyle(TextInputStyle.Short).setValue(existing?.role_id || '').setRequired(false).setMaxLength(25)),
+    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('interval').setLabel('Intervalo em minutos (mínimo 5)').setStyle(TextInputStyle.Short).setValue(String(existing?.interval_minutes || 60)).setRequired(true).setMaxLength(6)),
+  );
+  return modal;
+}
+
+async function ffRunAutoMessageScheduler() {
+  if (!client.isReady()) return;
+  const now = new Date();
+  const { data: due, error } = await supabase.from('ff_auto_messages')
+    .select('*').eq('enabled', true).lte('next_run_at', now.toISOString()).limit(20);
+  if (error) {
+    if (!String(error.message).includes('does not exist')) console.warn('[AUTO-MSG] consulta:', error.message);
+    return;
+  }
+  for (const item of due || []) {
+    const lockKey = `${item.guild_id}:${item.id}`;
+    if (_autoMessageTickLock.has(lockKey)) continue;
+    _autoMessageTickLock.add(lockKey);
+    try {
+      // Reserva a próxima execução antes do envio para evitar duplicação entre ciclos.
+      const nextRun = new Date(Date.now() + Math.max(AUTO_MESSAGE_MIN_INTERVAL, Number(item.interval_minutes) || 60) * 60000).toISOString();
+      const { data: reserved, error: reserveError } = await supabase.from('ff_auto_messages')
+        .update({ next_run_at: nextRun, updated_at: now.toISOString() })
+        .eq('id', item.id).eq('enabled', true).lte('next_run_at', now.toISOString()).select('id').maybeSingle();
+      if (reserveError || !reserved) continue;
+      const guild = client.guilds.cache.get(item.guild_id);
+      const channel = guild?.channels.cache.get(item.channel_id) || await guild?.channels.fetch(item.channel_id).catch(() => null);
+      if (!channel?.isTextBased?.() || !channel.send) continue;
+      const content = String(item.content || '').replace(/\{user\}/g, 'comunidade');
+      const allowedMentions = item.role_id
+        ? { parse: [], roles: [item.role_id], users: [], repliedUser: false }
+        : { parse: [], users: [], roles: [], repliedUser: false };
+      if (item.message_type === 'embed') {
+        const embed = new EmbedBuilder().setColor('#5865F2').setDescription(content.slice(0, 4000)).setTimestamp();
+        await channel.send({ content: item.role_id ? `<@&${item.role_id}>` : undefined, embeds: [embed], allowedMentions });
+      } else {
+        await channel.send({ content: `${item.role_id ? `<@&${item.role_id}> ` : ''}${content}`.slice(0, 2000), allowedMentions });
+      }
+    } catch (err) {
+      console.warn('[AUTO-MSG] Falha ao enviar:', err.message);
+    } finally {
+      _autoMessageTickLock.delete(lockKey);
+    }
+  }
 }
 
 async function ffPanelApostas(gid) {
@@ -2254,6 +2352,7 @@ client.on('interactionCreate', async (i) => {
         if (tt === 'valores') return i.update(await ffPanelValores(guild.id));
         if (tt === 'mediadores') return i.update(await ffPanelMediadores(guild.id));
         if (tt === 'automacoes') return i.update(await ffPanelAutomacoes(guild.id));
+        if (tt === 'mensagens') return i.update(await ffPanelAutoMensagens(guild.id));
         if (tt === 'loja_coins') return i.update(await ffPanelLojaCoins(guild.id));
       }
 
@@ -2302,6 +2401,37 @@ client.on('interactionCreate', async (i) => {
         }
       }
 
+
+      if (action === 'msg_add') {
+        const list = await ffGetAutoMessages(guild.id);
+        if (list.length >= AUTO_MESSAGE_LIMIT) return i.reply({ content: `❌ Limite de ${AUTO_MESSAGE_LIMIT} auto mensagens atingido.`, flags: EPHEMERAL });
+        const channels = [...guild.channels.cache.filter(c => c.type === ChannelType.GuildText && c.permissionsFor(guild.members.me)?.has(PermissionFlagsBits.ViewChannel | PermissionFlagsBits.SendMessages)).values()].slice(0, 25);
+        if (!channels.length) return i.reply({ content: '❌ Não encontrei canais de texto em que o bot possa enviar mensagens.', flags: EPHEMERAL });
+        const menu = new StringSelectMenuBuilder().setCustomId('ffcfg:msg_add_channel').setPlaceholder('Escolha o canal da auto mensagem');
+        for (const channel of channels) menu.addOptions({ label: `#${channel.name}`.slice(0, 100), value: channel.id, description: `Canal ID: ${channel.id}`.slice(0, 100) });
+        return i.reply({ content: 'Escolha o canal onde a auto mensagem será enviada:', components: [new ActionRowBuilder().addComponents(menu)], flags: EPHEMERAL });
+      }
+      if (['msg_edit', 'msg_toggle', 'msg_delete'].includes(action)) {
+        const list = await ffGetAutoMessages(guild.id);
+        if (!list.length) return i.reply({ content: 'Não há auto mensagens cadastradas.', flags: EPHEMERAL });
+        const page = Math.max(0, Math.min(Math.ceil(list.length / 25) - 1, Number(rest[0] || 0) || 0));
+        const menu = new StringSelectMenuBuilder()
+          .setCustomId(`ffcfg:${action}_pick:${page}`)
+          .setPlaceholder(action === 'msg_edit' ? 'Escolha para editar' : action === 'msg_toggle' ? 'Escolha para ativar/desativar' : 'Escolha para excluir');
+        for (const item of list.slice(page * 25, page * 25 + 25)) {
+          menu.addOptions({
+            label: `${item.enabled ? 'Ativa' : 'Pausada'} · ${item.message_type === 'embed' ? 'Embed' : 'Say'} · ${String(item.content || '').replace(/\s+/g, ' ').slice(0, 45)}`.slice(0, 100),
+            description: `Canal ${item.channel_id} · ${item.interval_minutes} min`,
+            value: String(item.id),
+          });
+        }
+        const rows = [new ActionRowBuilder().addComponents(menu)];
+        if (list.length > 25) rows.push(new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`ffcfg:${action}:${Math.max(0, page - 1)}`).setLabel('Página anterior').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+          new ButtonBuilder().setCustomId(`ffcfg:${action}:${Math.min(Math.ceil(list.length / 25) - 1, page + 1)}`).setLabel('Próxima página').setStyle(ButtonStyle.Secondary).setDisabled(page >= Math.ceil(list.length / 25) - 1),
+        ));
+        return i.reply({ embeds: [new EmbedBuilder().setTitle(`💬 Gerenciar auto mensagens (${page + 1}/${Math.ceil(list.length / 25)})`).setColor('#5865F2')], components: rows, flags: EPHEMERAL });
+      }
       if (action === 'add_valor') {
         const m = new ModalBuilder().setCustomId('ffcfg_modal:add_valor').setTitle('Adicionar valor');
         m.addComponents(new ActionRowBuilder().addComponents(
@@ -2312,10 +2442,12 @@ client.on('interactionCreate', async (i) => {
       if (action === 'del_valor') {
         const cfg = await ffGetConfig(guild.id);
         const vals = Array.isArray(cfg?.value_options) ? cfg.value_options : [];
-        if (!vals.length) return i.reply({ content: '❌ Nenhum valor.', flags: EPHEMERAL });
-        const menu = new StringSelectMenuBuilder().setCustomId('ffcfg:pick_del_valor').setPlaceholder('Remover');
-        for (const v of vals.slice(0, 25)) menu.addOptions({ label: `R$ ${v}`, value: v });
-        return i.reply({ embeds: [new EmbedBuilder().setTitle('➖ Remover valor')], components: [new ActionRowBuilder().addComponents(menu)], flags: EPHEMERAL });
+        if (!vals.length) return i.reply({ content: '❌ Nenhum valor cadastrado.', flags: EPHEMERAL });
+        const m = new ModalBuilder().setCustomId('ffcfg_modal:delete_valor').setTitle('Remover valor de aposta');
+        m.addComponents(new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId('v').setLabel('Valor exato (ex.: 1,50)').setStyle(TextInputStyle.Short).setRequired(true)
+        ));
+        return i.showModal(m);
       }
       if (action === 'reset_valores') {
         await ffPatchConfig(guild.id, { value_options: FF_DEFAULT_VALUES });
@@ -2577,8 +2709,47 @@ client.on('interactionCreate', async (i) => {
 
     // ─── FFCFG MODAIS ───
     if (ns === 'ffcfg_modal') {
-      const type = rest[0], field = rest[1];
+      const type = action, field = rest[0];
 
+
+      if (action === 'auto_add' || action === 'auto_edit') {
+        const channelId = i.fields.getTextInputValue('channel_id').trim().replace(/[<#>]/g, '');
+        const messageType = i.fields.getTextInputValue('type').trim().toLowerCase();
+        const content = i.fields.getTextInputValue('content').trim();
+        const roleRaw = i.fields.getTextInputValue('role_id').trim().replace(/[<@&>]/g, '');
+        const interval = Number(i.fields.getTextInputValue('interval').trim());
+        const channel = guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null);
+        if (!channel || !channel.isTextBased?.() || !channel.send) return i.reply({ content: '❌ Canal inválido. Use o ID de um canal de texto deste servidor.', flags: EPHEMERAL });
+        if (!['say', 'embed'].includes(messageType)) return i.reply({ content: '❌ Tipo inválido. Use exatamente `say` ou `embed`.', flags: EPHEMERAL });
+        if (!content || content.length > (messageType === 'say' ? 2000 : 4000)) return i.reply({ content: '❌ Mensagem vazia ou longa demais.', flags: EPHEMERAL });
+        if (!Number.isInteger(interval) || interval < AUTO_MESSAGE_MIN_INTERVAL || interval > 525600) return i.reply({ content: `❌ Intervalo deve ser um número inteiro entre ${AUTO_MESSAGE_MIN_INTERVAL} e 525600 minutos.`, flags: EPHEMERAL });
+        let roleId = null;
+        if (roleRaw) {
+          roleId = roleRaw;
+          if (!guild.roles.cache.has(roleId)) return i.reply({ content: '❌ Cargo não encontrado neste servidor.', flags: EPHEMERAL });
+        }
+        const botMember = guild.members.me;
+        if (!channel.permissionsFor(botMember)?.has(PermissionFlagsBits.ViewChannel | PermissionFlagsBits.SendMessages)) {
+          return i.reply({ content: '❌ O bot precisa de permissões para ver e enviar mensagens nesse canal.', flags: EPHEMERAL });
+        }
+        const patch = {
+          guild_id: guild.id, channel_id: channel.id, message_type: messageType,
+          content, role_id: roleId, interval_minutes: interval, enabled: true,
+          next_run_at: new Date(Date.now() + interval * 60000).toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        let result;
+        if (action === 'auto_edit') {
+          const itemId = rest[0];
+          result = await supabase.from('ff_auto_messages').update(patch).eq('id', itemId).eq('guild_id', guild.id).select('id').maybeSingle();
+        } else {
+          const current = await ffGetAutoMessages(guild.id);
+          if (current.length >= AUTO_MESSAGE_LIMIT) return i.reply({ content: `❌ Limite de ${AUTO_MESSAGE_LIMIT} auto mensagens atingido.`, flags: EPHEMERAL });
+          result = await supabase.from('ff_auto_messages').insert(patch).select('id').single();
+        }
+        if (result.error) return i.reply({ content: `❌ Não consegui salvar. Verifique a migração SQL. ${result.error.message}`, flags: EPHEMERAL });
+        return i.reply({ ...(await ffPanelAutoMensagens(guild.id)), flags: EPHEMERAL });
+      }
       if (type === 'channel') {
         const v = i.fields.getTextInputValue('v').trim();
         const ch = resolveChannel(guild, v);
@@ -2594,7 +2765,13 @@ client.on('interactionCreate', async (i) => {
         return i.reply({ ...(await ffPanelCargos(guild.id)), flags: EPHEMERAL });
       }
       if (type === 'number') {
-        const v = parseFloat(i.fields.getTextInputValue('v').replace(',', '.')) || 0;
+        const raw = i.fields.getTextInputValue('v').trim().replace(',', '.');
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 1000000) return i.reply({ content: '❌ Informe um número válido entre 0 e 1.000.000.', flags: EPHEMERAL });
+        if (field === 'valor_minimo' && v <= 0) return i.reply({ content: '❌ O valor mínimo precisa ser maior que zero.', flags: EPHEMERAL });
+        const current = await ffGetConfig(guild.id);
+        if (field === 'valor_minimo' && v > Number(current?.valor_maximo ?? 1000)) return i.reply({ content: '❌ O valor mínimo não pode ser maior que o máximo atual.', flags: EPHEMERAL });
+        if (field === 'valor_maximo' && v < Number(current?.valor_minimo ?? 0.50)) return i.reply({ content: '❌ O valor máximo não pode ser menor que o mínimo atual.', flags: EPHEMERAL });
         await ffPatchConfig(guild.id, { [field]: v });
         return i.reply({ ...(await ffPanelApostas(guild.id)), flags: EPHEMERAL });
       }
@@ -2612,14 +2789,28 @@ client.on('interactionCreate', async (i) => {
         await ffPatchConfig(guild.id, { mp_access_token: tk, mp_public_key: pk });
         return i.reply({ content: `✅ MP configurado!\n> 🔑 \`${maskToken(tk)}\``, flags: EPHEMERAL });
       }
+
+      if (type === 'delete_valor') {
+        const raw = i.fields.getTextInputValue('v').trim().replace(',', '.');
+        const num = Number(raw);
+        if (!Number.isFinite(num) || num <= 0) return i.reply({ content: '❌ Valor inválido.', flags: EPHEMERAL });
+        const cfg = await ffGetConfig(guild.id);
+        const vals = Array.isArray(cfg?.value_options) ? [...cfg.value_options] : [];
+        const target = num.toFixed(2);
+        const next = vals.filter(x => Number(x).toFixed(2) !== target);
+        if (next.length === vals.length) return i.reply({ content: `❌ O valor R$ ${target} não está cadastrado.`, flags: EPHEMERAL });
+        await ffPatchConfig(guild.id, { value_options: next });
+        return i.reply({ ...(await ffPanelValores(guild.id)), flags: EPHEMERAL });
+      }
       if (type === 'add_valor') {
         const v = i.fields.getTextInputValue('v').replace(',', '.').trim();
-        const num = parseFloat(v);
-        if (isNaN(num) || num <= 0) return i.reply({ content: '❌ Valor inválido.', flags: EPHEMERAL });
+        const num = Number(v);
+        if (!Number.isFinite(num) || num <= 0 || num > 1000000) return i.reply({ content: '❌ Valor inválido. Informe um valor entre R$ 0,01 e R$ 1.000.000,00.', flags: EPHEMERAL });
         const cfg = await ffGetConfig(guild.id);
-        const vals = Array.isArray(cfg?.value_options) ? cfg.value_options : [];
+        const vals = Array.isArray(cfg?.value_options) ? [...cfg.value_options] : [];
         const fmtd = num.toFixed(2);
-        if (vals.includes(fmtd)) return i.reply({ content: '❌ Já existe.', flags: EPHEMERAL });
+        if (vals.some(x => Number(x).toFixed(2) === fmtd)) return i.reply({ content: '❌ Esse valor já está cadastrado.', flags: EPHEMERAL });
+        if (vals.length >= 100) return i.reply({ content: '❌ Limite de 100 valores de aposta atingido. Remova um valor antes de adicionar outro.', flags: EPHEMERAL });
         vals.push(fmtd);
         vals.sort((a, b) => Number(a) - Number(b));
         await ffPatchConfig(guild.id, { value_options: vals });
@@ -2783,6 +2974,28 @@ client.on('interactionCreate', async (i) => {
 
     // ─── FFCFG SELECTS ───
     if (ns === 'ffcfg') {
+
+      if (action === 'msg_add_channel') {
+        const channel = guild.channels.cache.get(value);
+        if (!channel || channel.type !== ChannelType.GuildText) return i.update({ content: 'Canal inválido.', components: [], embeds: [] });
+        return i.showModal(ffAutoMessageModal(null, channel.id));
+      }
+      if (['msg_edit_pick', 'msg_toggle_pick', 'msg_delete_pick'].includes(action)) {
+        const { data: item, error } = await supabase.from('ff_auto_messages').select('*')
+          .eq('id', value).eq('guild_id', guild.id).maybeSingle();
+        if (error || !item) return i.update({ content: 'Auto mensagem não encontrada. Confira se a migração SQL foi executada.', embeds: [], components: [] });
+        if (action === 'msg_edit_pick') return i.showModal(ffAutoMessageModal(item));
+        if (action === 'msg_toggle_pick') {
+          const { error: updateError } = await supabase.from('ff_auto_messages')
+            .update({ enabled: !item.enabled, next_run_at: new Date(Date.now() + 60000).toISOString(), updated_at: new Date().toISOString() })
+            .eq('id', item.id).eq('guild_id', guild.id);
+          if (updateError) return i.update({ content: `Falha ao atualizar: ${updateError.message}`, embeds: [], components: [] });
+          return i.update(await ffPanelAutoMensagens(guild.id));
+        }
+        const { error: deleteError } = await supabase.from('ff_auto_messages').delete().eq('id', item.id).eq('guild_id', guild.id);
+        if (deleteError) return i.update({ content: `Falha ao excluir: ${deleteError.message}`, embeds: [], components: [] });
+        return i.update(await ffPanelAutoMensagens(guild.id));
+      }
       if (action === 'pick_del_valor') {
         const cfg = await ffGetConfig(guild.id);
         const vals = (Array.isArray(cfg?.value_options) ? cfg.value_options : []).filter(x => x !== value);
@@ -8174,6 +8387,7 @@ const onReady = async () => {
   console.log(`✅ [READY] Sync guilds: ${syncOk} ok, ${syncFail} falhas`);
 
   safeInterval(checkTicketsAutoClose, 5 * 60 * 1000, 'TICKETS-AUTO-CLOSE');
+  safeInterval(() => ffRunAutoMessageScheduler().catch((e) => console.warn('[AUTO-MSG] scheduler:', e.message)), 60 * 1000, 'AUTO-MESSAGES');
   startDevRoleWatcher();
 
   safeInterval(() => {
