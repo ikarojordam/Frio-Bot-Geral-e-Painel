@@ -229,3 +229,27 @@ button:active,.btn:active,[role="button"]:active{transform:translateY(0) scale(.
 .frio-global-footer a:hover{color:#67e8f9;text-shadow:0 0 16px rgba(34,211,238,.3)}
 .frio-global-footer .frio-footer-brand{font-weight:800;letter-spacing:.04em;color:#f4f9ff}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important;transform:none!important;will-change:auto!important}}
+
+
+/* FIX 2026-10: fundo cósmico visível em todas as interfaces.
+   A camada fica fixa atrás do conteúdo e evita que backgrounds locais escondam a imagem. */
+html, body { min-height:100%; background-color:#040711 !important; }
+body {
+  background-image:
+    linear-gradient(180deg, rgba(3,7,18,.34), rgba(3,7,18,.56)),
+    url("/assets/space-background.jpeg") !important;
+  background-position:center center !important;
+  background-size:cover !important;
+  background-repeat:no-repeat !important;
+  background-attachment:fixed !important;
+}
+body::before {
+  z-index:0 !important;
+  background:
+    radial-gradient(ellipse at 14% 0%, rgba(93,76,255,.10), transparent 44%),
+    radial-gradient(ellipse at 90% 35%, rgba(0,190,255,.07), transparent 40%) !important;
+}
+body > * { position:relative; }
+.app-shell, .auth-shell, .legal-shell, main, .main-content, .content {
+  background-color:transparent;
+}

@@ -526,8 +526,17 @@ async function bootApp() {
     let startPage = 'dashboard', startParam = null;
     if (hash) {
       const [p, param] = hash.split('/');
-      if (p) startPage = decodeURIComponent(p);
-      if (param) startParam = decodeURIComponent(param);
+      const requestedPage = p ? decodeURIComponent(p) : '';
+      // Não reabrir a tela de notificações por causa de um hash antigo salvo no navegador.
+      // Links diretos para outras áreas continuam funcionando normalmente.
+      if (requestedPage && requestedPage !== 'notifications') {
+        startPage = requestedPage;
+        if (param) startParam = decodeURIComponent(param);
+      }
+    }
+    // Remova o hash antigo de notificações para que o painel abra no Dashboard nas próximas visitas.
+    if (startPage === 'dashboard' && location.hash === '#notifications') {
+      history.replaceState(null, '', location.pathname + location.search);
     }
 
     refreshIcons();
