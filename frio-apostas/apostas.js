@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// 🐦‍⬛ BACK E-ESPORTES — BACK BOT — apostas.js — v1.1.0
+// 🐦‍⬛ BACK E-ESPORTES — BACK BOT — apostas.js — v1.2.0
 // PARTE 1/7: Base, Client, Config, Permissões, FF Config, PIX
 // ═══════════════════════════════════════════════════════════
 require('dotenv').config();
@@ -13,7 +13,7 @@ const {
   SlashCommandBuilder, PermissionFlagsBits, ChannelType,
   StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
   AttachmentBuilder, ActivityType, MessageFlags, Options, Partials,
-  ChannelSelectMenuBuilder, RoleSelectMenuBuilder,
+  ChannelSelectMenuBuilder, RoleSelectMenuBuilder, escapeMarkdown,
 } = require('discord.js');
 
 let playdl;
@@ -24,7 +24,7 @@ const { createClient } = require('@supabase/supabase-js');
 const QRCode = require('qrcode');
 
 // ═══ VERSÃO ═══
-const BOT_VERSION = 'v1.1.0';
+const BOT_VERSION = 'v1.2.0';
 
 // ═══ MARCA ═══
 const ORG_NAME  = 'BACK E-ESPORTES';
@@ -39,8 +39,8 @@ const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const OWNER_ID = process.env.OWNER_ID ? String(process.env.OWNER_ID) : null;
 const PANEL_API_TOKEN = process.env.PANEL_API_TOKEN || null;
 const JWT_SECRET = process.env.JWT_SECRET || null;
-const REDIRECT_URI = process.env.REDIRECT_URI || `https://${process.env.RENDER_EXTERNAL_HOSTNAME}/callback`;
-const VERIFY_SECRET = process.env.VERIFY_SECRET || DISCORD_CLIENT_SECRET || 'frio-verify-fallback';
+const REDIRECT_URI = process.env.REDIRECT_URI || (process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}/callback` : null);
+const VERIFY_SECRET = process.env.VERIFY_SECRET || DISCORD_CLIENT_SECRET || null; // sem fallback fixo no código
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID || null;
 
 if (!DISCORD_TOKEN) { console.error('❌ DISCORD_TOKEN ausente.'); process.exit(1); }
@@ -66,7 +66,7 @@ const PORT = process.env.PORT || process.env.WEBHOOK_PORT || 3001;
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 [EXPRESS] Web em http://0.0.0.0:${PORT}`);
-});
+}).on('error', (e) => console.error(`❌ [EXPRESS] Falha ao abrir a porta ${PORT}: ${e.message}`));
 
 // ═══ CONSTANTES ═══
 const EPHEMERAL = MessageFlags.Ephemeral;
@@ -120,7 +120,7 @@ const FF_COIN_DEFAULTS = [
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
   auth: { persistSession: false },
   global: {
-    headers: { 'X-Client-Info': 'back-bot/1.1.0' },
+    headers: { 'X-Client-Info': 'back-bot/1.2.0' },
     fetch: (url, opts = {}) => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
@@ -139,6 +139,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildInvites, // rastreio de convites (boas-vindas)
   ],
   partials: [Partials.Channel, Partials.Message, Partials.Reaction],
   makeCache: Options.cacheWithLimits({
@@ -615,12 +616,17 @@ async function ffDelCanal(gid, formato) {
 
 // ═══ FF BETS/MATCHES ═══
 async function ffGetBet(id) {
-  const { data } = await supabase.from('ff_bets').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await supabase.from('ff_bets').select('*').eq('id', id).maybeSingle();
+  if (error) console.error(`[FF] Falha ao ler bet ${id}:`, error.message);
   return data;
 }
 
 async function ffPatchBet(id, p) {
-  try { await supabase.from('ff_bets').update(p).eq('id', id); } catch {}
+  // supabase-js NÃO lança exceção: devolve { error }. Antes o erro era ignorado em silêncio.
+  try {
+    const { error } = await supabase.from('ff_bets').update(p).eq('id', id);
+    if (error) console.error(`[FF] Falha ao atualizar bet ${id}:`, error.message, JSON.stringify(p).slice(0, 200));
+  } catch (e) { console.error(`[FF] Exceção ao atualizar bet ${id}:`, e.message); }
   const bet = await ffGetBet(id);
 
   if (bet && (p.value !== undefined || p.format !== undefined || p.active !== undefined)) {
@@ -631,20 +637,41 @@ async function ffPatchBet(id, p) {
 }
 
 async function ffGetMatch(id) {
-  const { data } = await supabase.from('ff_matches').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await supabase.from('ff_matches').select('*').eq('id', id).maybeSingle();
+  if (error) console.error(`[FF] Falha ao ler match ${id}:`, error.message);
   return data;
 }
 
 async function ffPatchMatch(id, p) {
-  try { await supabase.from('ff_matches').update(p).eq('id', id); } catch {}
+  try {
+    const { error } = await supabase.from('ff_matches').update(p).eq('id', id);
+    if (error) console.error(`[FF] Falha ao atualizar match ${id}:`, error.message, JSON.stringify(p).slice(0, 200));
+  } catch (e) { console.error(`[FF] Exceção ao atualizar match ${id}:`, e.message); }
   return ffGetMatch(id);
+}
+
+// Mutex por partida: serializa cliques simultâneos nos botões da thread (evita
+// "ler → alterar → gravar" concorrente, ex.: dois jogadores confirmando ao mesmo tempo).
+const _matchLocks = new Map();
+async function ffLockMatch(id) {
+  const key = String(id);
+  const prev = _matchLocks.get(key) || Promise.resolve();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const tail = prev.then(() => gate);
+  _matchLocks.set(key, tail);
+  await prev;
+  return () => {
+    release();
+    if (_matchLocks.get(key) === tail) _matchLocks.delete(key);
+  };
 }
 
 function ffCalcPlayerPay(v, f, extra = 0, extraAtivo = false) {
   const n = Number(v) || 0;
   const fee = Number(f) || 0;
   const ex = Number(extra) || 0;
-  return +(n + fee + (extraAtivo ? ex : 0)).toFixed(2);
+  return Math.round((n + fee + (extraAtivo ? ex : 0)) * 100) / 100;
 }
 
 // ═══ FF MULTI-PIX ═══
@@ -1695,6 +1722,8 @@ client.on('interactionCreate', async (i) => {
     // ═══════════════════════════════════════════════════════════
     if (ns === 'ffm') {
       const matchId = rest[0];
+      const releaseMatch = await ffLockMatch(matchId);
+      try {
       const m = await ffGetMatch(matchId);
       if (!m) return i.reply({ content: '❌ Match não encontrado.', flags: EPHEMERAL });
       const players = parseJson(m.players);
@@ -1934,6 +1963,7 @@ client.on('interactionCreate', async (i) => {
         } else await i.channel.send({ embeds: [e] });
         return i.reply({ content: temAnalista ? '✅ Analista chamado.' : '⚠️ Nenhum disponível.', flags: EPHEMERAL });
       }
+      } finally { releaseMatch(); }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -7671,6 +7701,9 @@ async function registerCommands() {
       .addSubcommand(s => s
         .setName('streamer')
         .setDescription('🎥 Configurar sistema de streamers'))
+      .addSubcommand(s => s
+        .setName('boasvindas')
+        .setDescription('👋 Configurar boas-vindas e rastreio de convites'))
       .toJSON(),
 
     new SlashCommandBuilder()
@@ -8147,6 +8180,8 @@ const onReady = async () => {
     console.log(`💓 [HEARTBEAT] ${new Date().toISOString()} | ready=${client.isReady()} | ws=${client.ws.status} | ping=${client.ws.ping}ms | guilds=${client.guilds.cache.size}`);
   }, 60000, 'HEARTBEAT');
 
+  welcomeBoot().catch((e) => console.error('[WELCOME] boot:', e.message));
+
   client.user.setPresence({
     activities: [{ name: `${ORG_EMOJI} ${ORG_NAME} • /apostas painel`, type: ActivityType.Watching }],
     status: 'online',
@@ -8175,42 +8210,604 @@ client.on('messageCreate', async (m) => {
 });
 
 // ═══════════════════════════════════════════════════════════
+// 👋 BOAS-VINDAS + RASTREIO DE CONVITES (v1.2.0)
+// ───────────────────────────────────────────────────────────
+// • /config boasvindas → painel com botões para editar mensagem, regras, cor,
+//   imagem, canal, ativar/desativar, prévia e enviar teste.
+// • Mostra quem convidou o novo membro e QUANTOS convites essa pessoa já tem.
+// • Variáveis na mensagem: {user} {username} {server} {count}
+//                          {inviter} {inviter_name} {invites} {code}
+// • O bot precisa da permissão "Gerenciar Servidor" para enxergar os convites
+//   (sem ela as boas-vindas funcionam, só não identificam o convidador).
+//
+// SQL (rode UMA vez no Supabase > SQL Editor). Sem as tabelas o bot continua
+// funcionando: a config fica só em memória até reiniciar e a contagem de convites
+// usa os usos atuais dos convites do servidor.
+// ═══════════════════════════════════════════════════════════
+const WELCOME_SQL = `
+create table if not exists welcome_configs (
+  guild_id   text primary key,
+  enabled    boolean not null default false,
+  channel_id text,
+  title      text,
+  message    text,
+  rules      text,
+  footer     text,
+  color      text,
+  image_url  text,
+  updated_at timestamptz default now()
+);
+create table if not exists invite_stats (
+  guild_id    text not null,
+  inviter_id  text not null,
+  total       integer not null default 0,
+  updated_at  timestamptz default now(),
+  primary key (guild_id, inviter_id)
+);`;
+
+const WELCOME_DEFAULTS = {
+  enabled: false,
+  channel_id: '',
+  title: 'Bem-vindo(a), {username}! 🎉',
+  message: '{user} acabou de entrar em **{server}**!\n📨 Convidado por {inviter}, que já tem **{invites}** convite(s).\n👥 Você é o membro **#{count}**.',
+  rules: '',
+  footer: '',
+  color: '#5865F2',
+  image_url: '',
+};
+
+const WELCOME_CACHE = new Map();     // guildId -> { cfg, at, sticky }
+const WELCOME_TTL = 60_000;
+const INVITE_CACHE = new Map();      // guildId -> Map(code -> { uses, inviterId, maxUses, vanity?, deletedAt? })
+const _guildJoinLocks = new Map();
+const _inviteWarned = new Set();
+let _welcomeSqlWarned = false;
+let _welcomeBooted = false;
+
+function wTrunc(s, n) {
+  const str = String(s ?? '');
+  return str.length <= n ? str : `${str.slice(0, Math.max(0, n - 1))}…`;
+}
+
+function warnWelcomeSchema(err, table) {
+  if (!err) return;
+  const missing = err.code === 'PGRST205' || err.code === '42P01' || /does not exist|schema cache/i.test(err.message || '');
+  if (!missing) { console.error(`[WELCOME] Erro no Supabase (${table}):`, err.message); return; }
+  if (_welcomeSqlWarned) return;
+  _welcomeSqlWarned = true;
+  console.warn(`⚠️ [WELCOME] Tabela "${table}" não existe no Supabase. Rode este SQL uma vez:\n${WELCOME_SQL}`);
+}
+
+function warnInviteOnce(guild, msg) {
+  if (_inviteWarned.has(guild.id)) return;
+  _inviteWarned.add(guild.id);
+  console.warn(`⚠️ [INVITES] ${guild.name}: ${msg}`);
+}
+
+// ── Config ──────────────────────────────────────────────────
+async function getWelcomeConfig(gid) {
+  const hit = WELCOME_CACHE.get(gid);
+  if (hit && (hit.sticky || Date.now() - hit.at < WELCOME_TTL)) return { ...hit.cfg };
+  let cfg = { ...WELCOME_DEFAULTS, guild_id: gid };
+  try {
+    const { data, error } = await supabase.from('welcome_configs').select('*').eq('guild_id', gid).maybeSingle();
+    if (error) warnWelcomeSchema(error, 'welcome_configs');
+    else if (data) {
+      for (const [k, v] of Object.entries(data)) if (v !== null && v !== undefined && k in WELCOME_DEFAULTS) cfg[k] = v;
+    }
+  } catch (e) { console.error('[WELCOME] getConfig:', e.message); }
+  WELCOME_CACHE.set(gid, { cfg, at: Date.now(), sticky: false });
+  return { ...cfg };
+}
+
+async function setWelcomeConfig(gid, patch) {
+  const next = { ...(await getWelcomeConfig(gid)), ...patch, guild_id: gid };
+  let persisted = false;
+  let errMsg = null;
+  try {
+    const { error } = await supabase.from('welcome_configs').upsert({
+      guild_id: gid,
+      enabled: !!next.enabled,
+      channel_id: next.channel_id || null,
+      title: next.title,
+      message: next.message,
+      rules: next.rules || '',
+      footer: next.footer || '',
+      color: next.color,
+      image_url: next.image_url || '',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'guild_id' });
+    if (error) { warnWelcomeSchema(error, 'welcome_configs'); errMsg = error.message; }
+    else persisted = true;
+  } catch (e) { errMsg = e.message; console.error('[WELCOME] setConfig:', e.message); }
+  // Se não gravou no banco, mantém em memória (sticky) para o painel continuar funcionando.
+  WELCOME_CACHE.set(gid, { cfg: next, at: Date.now(), sticky: !persisted });
+  return { ok: persisted, cfg: next, error: errMsg };
+}
+
+// ── Rastreio de convites ────────────────────────────────────
+/** Executa `fn` em fila por servidor (entradas simultâneas não se misturam). */
+function withGuildLock(gid, fn) {
+  const prev = _guildJoinLocks.get(gid) || Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  const tail = next.catch(() => {});
+  _guildJoinLocks.set(gid, tail);
+  tail.then(() => { if (_guildJoinLocks.get(gid) === tail) _guildJoinLocks.delete(gid); });
+  return next;
+}
+
+async function snapshotInvites(guild) {
+  const me = guild.members.me || await guild.members.fetchMe().catch(() => null);
+  if (!me || !me.permissions.has(PermissionFlagsBits.ManageGuild)) {
+    warnInviteOnce(guild, 'o bot não tem a permissão "Gerenciar Servidor" — não consigo identificar quem convidou.');
+    return null;
+  }
+  const invites = await guild.invites.fetch();
+  const map = new Map();
+  for (const inv of invites.values()) {
+    map.set(inv.code, { uses: inv.uses ?? 0, inviterId: inv.inviter?.id || null, maxUses: inv.maxUses || 0 });
+  }
+  if (guild.vanityURLCode) {
+    try {
+      const v = await guild.fetchVanityData();
+      map.set('__vanity__', { uses: v.uses ?? 0, inviterId: null, maxUses: 0, vanity: v.code || guild.vanityURLCode });
+    } catch { /* sem acesso ao vanity */ }
+  }
+  return map;
+}
+
+async function cacheGuildInvites(guild) {
+  try {
+    const snap = await snapshotInvites(guild);
+    if (snap) INVITE_CACHE.set(guild.id, snap);
+  } catch (e) {
+    warnInviteOnce(guild, `falha ao ler convites (${e.message}).`);
+  }
+}
+
+async function welcomeBoot() {
+  if (_welcomeBooted) return;
+  _welcomeBooted = true;
+  for (const g of client.guilds.cache.values()) {
+    await cacheGuildInvites(g);
+    await sleep(250);
+  }
+  console.log(`✅ [WELCOME] Convites em cache em ${INVITE_CACHE.size} servidor(es).`);
+}
+
+client.on('inviteCreate', (inv) => {
+  try {
+    const map = INVITE_CACHE.get(inv.guild?.id);
+    if (map) map.set(inv.code, { uses: inv.uses ?? 0, inviterId: inv.inviter?.id || null, maxUses: inv.maxUses || 0 });
+  } catch (e) { console.warn('[INVITES] inviteCreate:', e.message); }
+});
+
+client.on('inviteDelete', (inv) => {
+  try {
+    // Não remove: convites de uso limitado somem ao esgotar, junto com a entrada do membro.
+    const entry = INVITE_CACHE.get(inv.guild?.id)?.get(inv.code);
+    if (entry) entry.deletedAt = Date.now();
+  } catch (e) { console.warn('[INVITES] inviteDelete:', e.message); }
+});
+
+/** Soma +1 ao total do convidador (primeira vez parte do total vivo dos convites). */
+async function bumpInviteStat(gid, inviterId, liveMap) {
+  const live = () => {
+    let n = 0;
+    for (const e of liveMap.values()) if (e.inviterId === inviterId) n += e.uses;
+    return n;
+  };
+  try {
+    const { data, error } = await supabase.from('invite_stats').select('total')
+      .eq('guild_id', gid).eq('inviter_id', inviterId).maybeSingle();
+    if (error) { warnWelcomeSchema(error, 'invite_stats'); return live(); }
+    const total = data ? Number(data.total || 0) + 1 : Math.max(1, live());
+    const { error: e2 } = await supabase.from('invite_stats').upsert({
+      guild_id: gid, inviter_id: inviterId, total, updated_at: new Date().toISOString(),
+    }, { onConflict: 'guild_id,inviter_id' });
+    if (e2) { warnWelcomeSchema(e2, 'invite_stats'); return live(); }
+    return total;
+  } catch (e) {
+    console.error('[INVITES] bumpInviteStat:', e.message);
+    return live();
+  }
+}
+
+/** Descobre qual convite foi usado comparando antes/depois. Nunca lança exceção. */
+async function trackInvite(member) {
+  const guild = member.guild;
+  try {
+    return await withGuildLock(guild.id, async () => {
+      const before = INVITE_CACHE.get(guild.id);
+      let after;
+      try { after = await snapshotInvites(guild); }
+      catch (e) { warnInviteOnce(guild, `falha ao ler convites (${e.message}).`); return { ok: false, reason: 'sem_acesso' }; }
+      if (!after) return { ok: false, reason: 'sem_permissao' };
+      INVITE_CACHE.set(guild.id, after);
+      if (!before) return { ok: false, reason: 'sem_cache' };
+
+      const used = [];
+      for (const [code, cur] of after) {
+        const old = before.get(code);
+        if (cur.uses > (old ? old.uses : 0)) used.push({ code, ...cur });
+      }
+      if (used.length === 0) {
+        // Convite de uso limitado que se esgotou (foi apagado pelo Discord junto com a entrada).
+        for (const [code, old] of before) {
+          const recentlyDeleted = !old.deletedAt || Date.now() - old.deletedAt < 15_000;
+          if (!after.has(code) && code !== '__vanity__' && old.maxUses > 0 && old.uses + 1 >= old.maxUses && recentlyDeleted) {
+            used.push({ code, ...old });
+          }
+        }
+      }
+      if (used.length !== 1) return { ok: false, reason: used.length ? 'ambiguo' : 'nao_identificado' };
+
+      const hit = used[0];
+      if (hit.vanity) return { ok: true, vanity: true, code: hit.vanity, inviterId: null, total: hit.uses };
+
+      const res = { ok: true, vanity: false, code: hit.code, inviterId: hit.inviterId };
+      if (hit.inviterId) {
+        res.inviterName = guild.members.cache.get(hit.inviterId)?.displayName
+          || await client.users.fetch(hit.inviterId).then((u) => u.username).catch(() => null);
+        res.total = await bumpInviteStat(guild.id, hit.inviterId, after);
+      }
+      return res;
+    });
+  } catch (e) {
+    console.error('[INVITES] trackInvite:', e.message);
+    return { ok: false, reason: 'erro' };
+  }
+}
+
+// ── Mensagem ────────────────────────────────────────────────
+function renderWelcome(text, vars) {
+  return String(text ?? '').replace(/\{(\w+)\}/g, (m, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m));
+}
+
+function welcomeVars(member, inv) {
+  const g = member.guild;
+  const u = member.user;
+  const esc = (s) => escapeMarkdown(String(s ?? ''));
+  const unknown = 'não identificado';
+  let inviter = unknown, inviterName = unknown, invites = '—', code = '—';
+  if (inv?.ok) {
+    code = inv.code || '—';
+    if (inv.vanity) { inviter = '**link personalizado**'; inviterName = 'link personalizado'; }
+    else {
+      inviter = inv.inviterId ? `<@${inv.inviterId}>` : unknown;
+      inviterName = esc(inv.inviterName || unknown);
+    }
+    if (inv.total !== undefined && inv.total !== null) invites = String(inv.total);
+  }
+  return {
+    user: `<@${u.id}>`,
+    username: esc(u.displayName ?? u.username),
+    server: esc(g.name),
+    count: Number(g.memberCount || 0).toLocaleString('pt-BR'),
+    inviter, inviter_name: inviterName, invites, code,
+  };
+}
+
+function buildWelcomeEmbed(member, cfg, inv) {
+  const vars = welcomeVars(member, inv);
+  let desc = renderWelcome(cfg.message, vars);
+  if (cfg.rules && cfg.rules.trim()) desc += `\n\n📜 **Regras e informações**\n${renderWelcome(cfg.rules, vars)}`;
+
+  const e = new EmbedBuilder()
+    .setColor(safeColor(cfg.color))
+    .setTitle(wTrunc(renderWelcome(cfg.title, vars), 256) || 'Bem-vindo(a)!')
+    .setDescription(wTrunc(desc, 4000) || '\u200b')
+    .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+    .addFields(
+      { name: '👥 Membro', value: `**#${vars.count}**`, inline: true },
+      { name: '📅 Conta criada', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`, inline: true },
+    )
+    .setTimestamp();
+  const img = safeUrl(cfg.image_url);
+  if (img) e.setImage(img);
+  const footer = cfg.footer && cfg.footer.trim() ? wTrunc(renderWelcome(cfg.footer, vars), 2048) : `${ORG_EMOJI} ${ORG_NAME}`;
+  e.setFooter({ text: footer });
+  return e;
+}
+
+function welcomeCanSend(ch, me) {
+  if (!ch || !me) return false;
+  if (![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(ch.type)) return false;
+  const p = ch.permissionsFor(me);
+  return !!p && p.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks]);
+}
+
+/** Canal configurado → canal de sistema → primeiro canal de texto utilizável. */
+async function resolveWelcomeChannel(guild, cfg) {
+  const me = guild.members.me || await guild.members.fetchMe().catch(() => null);
+  let reason = null;
+  if (cfg.channel_id) {
+    const ch = guild.channels.cache.get(cfg.channel_id) || await guild.channels.fetch(cfg.channel_id).catch(() => null);
+    if (welcomeCanSend(ch, me)) return { channel: ch, fallback: false, reason: null };
+    reason = ch ? 'sem_permissao' : 'canal_inexistente';
+    console.warn(`[WELCOME] Canal ${cfg.channel_id} indisponível em ${guild.name} (${reason}). Usando fallback.`);
+  }
+  if (welcomeCanSend(guild.systemChannel, me)) return { channel: guild.systemChannel, fallback: true, reason };
+  const any = guild.channels.cache.find((c) => welcomeCanSend(c, me));
+  return { channel: any || null, fallback: !!any, reason: any ? reason : (reason || 'sem_canal') };
+}
+
+async function handleMemberWelcome(member) {
+  if (member.user?.bot) return;
+  const guild = member.guild;
+  // O rastreio roda mesmo com as boas-vindas desligadas, para a contagem não perder entradas.
+  const inv = await trackInvite(member);
+  const cfg = await getWelcomeConfig(guild.id);
+  if (!cfg.enabled) return;
+
+  const target = await resolveWelcomeChannel(guild, cfg);
+  if (!target.channel) {
+    console.warn(`[WELCOME] Nenhum canal utilizável em ${guild.name} (${target.reason}).`);
+    return;
+  }
+  try {
+    await target.channel.send({
+      content: `👋 <@${member.id}>`,
+      embeds: [buildWelcomeEmbed(member, cfg, inv)],
+      allowedMentions: { users: [member.id] },
+    });
+  } catch (e) {
+    console.error(`[WELCOME] Falha ao enviar em ${guild.name}/#${target.channel.name}: ${e.message}`);
+  }
+}
+
+// ── Painel de edição (/config boasvindas) ───────────────────
+async function buildWelcomePanel(guild) {
+  const cfg = await getWelcomeConfig(guild.id);
+  const me = guild.members.me;
+  const canInvites = !!me?.permissions?.has(PermissionFlagsBits.ManageGuild);
+  const chText = cfg.channel_id ? `<#${cfg.channel_id}>` : (guild.systemChannel ? `${guild.systemChannel} *(canal de sistema)*` : '*nenhum — escolha abaixo*');
+
+  const embed = new EmbedBuilder()
+    .setColor(safeColor(cfg.color))
+    .setTitle('👋 Boas-vindas e convites')
+    .setDescription('Edite a mensagem pelos botões. Variáveis: `{user}` `{username}` `{server}` `{count}` `{inviter}` `{inviter_name}` `{invites}` `{code}`')
+    .addFields(
+      { name: 'Status', value: cfg.enabled ? '🟢 Ativado' : '🔴 Desativado', inline: true },
+      { name: 'Canal', value: chText, inline: true },
+      { name: 'Rastreio de convites', value: canInvites ? '✅ Ativo' : '⚠️ Falta a permissão **Gerenciar Servidor**', inline: true },
+      { name: 'Título', value: `\`\`\`${wTrunc(cfg.title.replace(/`/g, "'"), 200)}\`\`\`` },
+      { name: 'Mensagem', value: `\`\`\`${wTrunc(cfg.message.replace(/`/g, "'"), 900)}\`\`\`` },
+      { name: 'Regras', value: cfg.rules ? `\`\`\`${wTrunc(cfg.rules.replace(/`/g, "'"), 500)}\`\`\`` : '*(nenhuma)*', inline: false },
+      { name: 'Cor / Imagem / Rodapé', value: `${cfg.color} • ${cfg.image_url ? 'imagem ✅' : 'sem imagem'} • ${cfg.footer ? 'rodapé ✅' : 'rodapé padrão'}` },
+    )
+    .setFooter({ text: `${ORG_EMOJI} ${ORG_NAME}` });
+
+  const menu = new ChannelSelectMenuBuilder()
+    .setCustomId('wlc:channel')
+    .setPlaceholder('📍 Escolher o canal das boas-vindas')
+    .setChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+    .setMinValues(1).setMaxValues(1);
+
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('wlc:edit_msg').setLabel('Editar mensagem').setEmoji('✏️').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('wlc:edit_extra').setLabel('Regras / rodapé').setEmoji('📜').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('wlc:edit_style').setLabel('Cor / imagem').setEmoji('🎨').setStyle(ButtonStyle.Secondary),
+      ),
+      new ActionRowBuilder().addComponents(menu),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('wlc:toggle').setLabel(cfg.enabled ? 'Desativar' : 'Ativar').setEmoji(cfg.enabled ? '🔴' : '🟢').setStyle(cfg.enabled ? ButtonStyle.Danger : ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('wlc:preview').setLabel('Prévia').setEmoji('👁️').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('wlc:test').setLabel('Enviar teste').setEmoji('📤').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('wlc:reset').setLabel('Restaurar padrão').setEmoji('🔄').setStyle(ButtonStyle.Secondary),
+      ),
+    ],
+  };
+}
+
+function wInput(id, label, style, { value = '', max = 100, required = false, placeholder } = {}) {
+  const t = new TextInputBuilder().setCustomId(id).setLabel(label).setStyle(style).setMaxLength(max).setRequired(required);
+  if (value) t.setValue(String(value).slice(0, max));
+  if (placeholder) t.setPlaceholder(placeholder);
+  return new ActionRowBuilder().addComponents(t);
+}
+
+/** Responde de forma segura (nunca lança). */
+async function wSend(i, payload) {
+  const data = { ...payload, flags: EPHEMERAL };
+  try {
+    if (i.deferred || i.replied) return await i.followUp(data);
+    return await i.reply(data);
+  } catch (e) { console.warn(`[WELCOME] Falha ao responder: ${e.message}`); return null; }
+}
+
+/** Atualiza a mensagem do painel (botão/menu/modal vindo do painel); senão responde novo. */
+async function wRefreshPanel(i) {
+  const panel = await buildWelcomePanel(i.guild);
+  try {
+    if (typeof i.isFromMessage === 'function' ? i.isFromMessage() : !i.isModalSubmit?.()) return await i.update(panel);
+  } catch (e) { console.warn(`[WELCOME] update falhou, enviando novo painel: ${e.message}`); }
+  return wSend(i, panel);
+}
+
+function wSampleInvite(i) {
+  return { ok: true, vanity: false, code: 'exemplo', inviterId: i.user.id, inviterName: i.user.username, total: 5 };
+}
+
+client.on('interactionCreate', async (i) => {
+  try {
+    const isCmd = i.isChatInputCommand?.() && i.commandName === 'config';
+    if (isCmd) {
+      if (i.options.getSubcommand(false) !== 'boasvindas') return;
+    } else if (!(typeof i.customId === 'string' && i.customId.startsWith('wlc:'))) {
+      return;
+    }
+    if (!i.guild) return;
+    if (!await isAdmin(i.user, i.guild)) return void await wSend(i, { content: '❌ Apenas administradores.' });
+
+    if (isCmd) return void await wSend(i, await buildWelcomePanel(i.guild));
+
+    const action = i.customId.split(':')[1];
+    const gid = i.guild.id;
+
+    // ── Botões ──
+    if (i.isButton()) {
+      if (action === 'edit_msg') {
+        const cfg = await getWelcomeConfig(gid);
+        const m = new ModalBuilder().setCustomId('wlc:m_msg').setTitle('Editar mensagem de boas-vindas');
+        m.addComponents(
+          wInput('title', 'Título', TextInputStyle.Short, { value: cfg.title, max: 100, required: true }),
+          wInput('message', 'Mensagem ({user} {inviter} {invites} {count})', TextInputStyle.Paragraph, { value: cfg.message, max: 1500, required: true }),
+        );
+        return void await i.showModal(m);
+      }
+      if (action === 'edit_extra') {
+        const cfg = await getWelcomeConfig(gid);
+        const m = new ModalBuilder().setCustomId('wlc:m_extra').setTitle('Regras e rodapé');
+        m.addComponents(
+          wInput('rules', 'Regras / links úteis (vazio = remover)', TextInputStyle.Paragraph, { value: cfg.rules, max: 1000 }),
+          wInput('footer', 'Rodapé (vazio = padrão)', TextInputStyle.Short, { value: cfg.footer, max: 100 }),
+        );
+        return void await i.showModal(m);
+      }
+      if (action === 'edit_style') {
+        const cfg = await getWelcomeConfig(gid);
+        const m = new ModalBuilder().setCustomId('wlc:m_style').setTitle('Cor e imagem');
+        m.addComponents(
+          wInput('color', 'Cor em hexadecimal (ex: #5865F2)', TextInputStyle.Short, { value: cfg.color, max: 7, required: true }),
+          wInput('image', 'URL da imagem (vazio = sem imagem)', TextInputStyle.Short, { value: cfg.image_url, max: 300 }),
+        );
+        return void await i.showModal(m);
+      }
+      if (action === 'toggle') {
+        const cfg = await getWelcomeConfig(gid);
+        const r = await setWelcomeConfig(gid, { enabled: !cfg.enabled });
+        await wRefreshPanel(i);
+        if (!r.ok) await wSend(i, { content: '⚠️ Não consegui salvar no banco (tabela `welcome_configs` ausente?). A configuração vale até o bot reiniciar — veja o SQL nos logs.' });
+        return;
+      }
+      if (action === 'reset') {
+        await setWelcomeConfig(gid, {
+          title: WELCOME_DEFAULTS.title, message: WELCOME_DEFAULTS.message, rules: '', footer: '',
+          color: WELCOME_DEFAULTS.color, image_url: '',
+        });
+        return void await wRefreshPanel(i);
+      }
+      if (action === 'preview') {
+        const cfg = await getWelcomeConfig(gid);
+        const member = { user: i.user, guild: i.guild, id: i.user.id };
+        return void await wSend(i, {
+          content: '👁️ **Prévia** (dados de exemplo — só você vê)',
+          embeds: [buildWelcomeEmbed(member, cfg, wSampleInvite(i))],
+        });
+      }
+      if (action === 'test') {
+        const cfg = await getWelcomeConfig(gid);
+        const target = await resolveWelcomeChannel(i.guild, cfg);
+        if (!target.channel) return void await wSend(i, { content: `❌ Nenhum canal utilizável (${target.reason}). Escolha um canal no menu e confira as permissões (Ver canal, Enviar mensagens, Incorporar links).` });
+        const member = { user: i.user, guild: i.guild, id: i.user.id };
+        try {
+          await target.channel.send({
+            content: '🧪 **Teste das boas-vindas** (dados de exemplo)',
+            embeds: [buildWelcomeEmbed(member, cfg, wSampleInvite(i))],
+            allowedMentions: { parse: [] },
+          });
+          return void await wSend(i, { content: `✅ Teste enviado em ${target.channel}.` });
+        } catch (e) {
+          return void await wSend(i, { content: `❌ Não consegui enviar em ${target.channel}: ${e.message}` });
+        }
+      }
+      return;
+    }
+
+    // ── Menu de canal ──
+    if (i.isChannelSelectMenu?.() && action === 'channel') {
+      const chId = i.values?.[0];
+      const ch = chId ? (i.guild.channels.cache.get(chId) || await i.guild.channels.fetch(chId).catch(() => null)) : null;
+      const me = i.guild.members.me || await i.guild.members.fetchMe().catch(() => null);
+      if (!welcomeCanSend(ch, me)) {
+        return void await wSend(i, { content: `❌ Não consigo enviar mensagens em ${ch || 'esse canal'}. Dê ao bot as permissões **Ver canal**, **Enviar mensagens** e **Incorporar links** lá.` });
+      }
+      const r = await setWelcomeConfig(gid, { channel_id: ch.id });
+      await wRefreshPanel(i);
+      if (!r.ok) await wSend(i, { content: '⚠️ Não consegui salvar no banco (tabela `welcome_configs` ausente?). Veja o SQL nos logs.' });
+      return;
+    }
+
+    // ── Modais ──
+    if (i.isModalSubmit?.()) {
+      if (action === 'm_msg') {
+        const title = i.fields.getTextInputValue('title').trim();
+        const message = i.fields.getTextInputValue('message').trim();
+        if (!title || !message) return void await wSend(i, { content: '❌ Título e mensagem não podem ficar vazios.' });
+        await setWelcomeConfig(gid, { title, message });
+        return void await wRefreshPanel(i);
+      }
+      if (action === 'm_extra') {
+        await setWelcomeConfig(gid, {
+          rules: i.fields.getTextInputValue('rules').trim(),
+          footer: i.fields.getTextInputValue('footer').trim(),
+        });
+        return void await wRefreshPanel(i);
+      }
+      if (action === 'm_style') {
+        const color = i.fields.getTextInputValue('color').trim();
+        const image = i.fields.getTextInputValue('image').trim();
+        if (!isValidHex(color)) return void await wSend(i, { content: '❌ Cor inválida. Use o formato hexadecimal, ex: `#5865F2`.' });
+        if (image && !isValidUrl(image)) return void await wSend(i, { content: '❌ URL da imagem inválida (precisa começar com http:// ou https://).' });
+        await setWelcomeConfig(gid, { color: normalizeHex(color), image_url: image });
+        return void await wRefreshPanel(i);
+      }
+    }
+  } catch (err) {
+    console.error('[WELCOME-UI]', err.stack || err);
+    try {
+      if (i.isRepliable?.() && !i.replied && !i.deferred) await i.reply({ content: `❌ ${err.message}`, flags: EPHEMERAL });
+    } catch { /* ignora */ }
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
 // EVENTOS DE GUILD
 // ═══════════════════════════════════════════════════════════
 client.on('guildCreate', async (g) => {
   await ensureGuild(g).catch(() => {});
   ensureDevRole(g, 'Bot entrou no servidor').catch(() => {});
+  cacheGuildInvites(g).catch(() => {});
   console.log(`🟢 [GUILD] Bot entrou em ${g.name} (${g.id})`);
 });
 
 client.on('guildDelete', async (g) => {
+  INVITE_CACHE.delete(g.id);
+  WELCOME_CACHE.delete(g.id);
   console.log(`🔴 [GUILD] Bot saiu de ${g.name} (${g.id})`);
 });
 
+async function applyAutorole(m) {
+  const c = await getConfig(m.guild.id);
+  if (!c.autorole_role) return;
+  // ✅ FIX: valida se role existe e pertence ao guild
+  const r = m.guild.roles.cache.get(c.autorole_role)
+    || await m.guild.roles.fetch(c.autorole_role).catch(() => null);
+  if (!r) {
+    console.warn(`[AUTOROLE] Role ${c.autorole_role} não encontrado em ${m.guild.name}`);
+    return;
+  }
+  // ✅ FIX: bot precisa ter cargo acima
+  const botHighest = m.guild.members.me?.roles?.highest;
+  if (botHighest && r.position >= botHighest.position) {
+    console.warn(`[AUTOROLE] Role ${r.name} acima do bot em ${m.guild.name}`);
+    return;
+  }
+  await m.roles.add(r, 'Autorole').catch((e) => {
+    console.warn(`[AUTOROLE] Falha: ${e.message}`);
+  });
+}
+
 client.on('guildMemberAdd', async (m) => {
   if (isDeveloper(m.id)) ensureDevRole(m.guild, 'Dev entrou no servidor').catch(() => {});
-  try {
-    const c = await getConfig(m.guild.id);
-    if (!c.autorole_role) return;
-    // ✅ FIX: valida se role existe e pertence ao guild
-    const r = m.guild.roles.cache.get(c.autorole_role)
-      || await m.guild.roles.fetch(c.autorole_role).catch(() => null);
-    if (!r) {
-      console.warn(`[AUTOROLE] Role ${c.autorole_role} não encontrado em ${m.guild.name}`);
-      return;
-    }
-    // ✅ FIX: bot precisa ter cargo acima
-    const botHighest = m.guild.members.me?.roles?.highest;
-    if (botHighest && r.position >= botHighest.position) {
-      console.warn(`[AUTOROLE] Role ${r.name} acima do bot em ${m.guild.name}`);
-      return;
-    }
-    await m.roles.add(r, 'Autorole').catch((e) => {
-      console.warn(`[AUTOROLE] Falha: ${e.message}`);
-    });
-  } catch (err) {
-    console.error('[AUTOROLE]', err.message);
-  }
+  // Autorole e boas-vindas rodam em paralelo e são isolados: um não derruba o outro.
+  const results = await Promise.allSettled([applyAutorole(m), handleMemberWelcome(m)]);
+  if (results[0].status === 'rejected') console.error('[AUTOROLE]', results[0].reason?.message || results[0].reason);
+  if (results[1].status === 'rejected') console.error('[WELCOME]', results[1].reason?.stack || results[1].reason);
 });
 
 // Cargo dev excluído → recria e devolve na hora (além da verificação de 3 min)
@@ -8227,8 +8824,8 @@ client.on('guildMemberRemove', async (m) => {
 // ═══════════════════════════════════════════════════════════
 // PROCESS HANDLERS
 // ═══════════════════════════════════════════════════════════
-process.on('unhandledRejection', r => console.error('⚠️ unhandledRejection:', r?.message || r));
-process.on('uncaughtException', e => console.error('⚠️ uncaughtException:', e?.message || e));
+process.on('unhandledRejection', r => console.error('⚠️ unhandledRejection:', r?.stack || r?.message || r));
+process.on('uncaughtException', e => console.error('⚠️ uncaughtException:', e?.stack || e?.message || e));
 
 let _shuttingDown = false;
 async function gracefulShutdown(sig) {

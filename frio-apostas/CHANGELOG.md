@@ -1,3 +1,26 @@
+# CHANGELOG
+
+## v1.2.0
+### Novo — Boas-vindas + rastreio de convites
+- `/config boasvindas` (admin): painel com botões para **editar mensagem/título**, **regras e rodapé**, **cor e imagem**, escolher o **canal**, **ativar/desativar**, **prévia**, **enviar teste** e **restaurar padrão**.
+- Mostra **quem convidou** o novo membro e **quantos convites** essa pessoa já tem. Variáveis: `{user} {username} {server} {count} {inviter} {inviter_name} {invites} {code}`.
+- Detecta convite normal, convite de uso único que esgotou e link personalizado (vanity). Entradas simultâneas são processadas em fila por servidor.
+- Se o canal configurado for apagado ou o bot perder permissão: usa o canal de sistema e depois o primeiro canal utilizável; sem canal, só registra aviso.
+- Requer a permissão **Gerenciar Servidor** para ler convites (sem ela as boas-vindas funcionam como "não identificado") e a intent `GuildInvites` (não é privilegiada).
+- **SQL (rodar uma vez no Supabase)** — também aparece nos logs se faltar:
+  `welcome_configs` e `invite_stats` (veja `WELCOME_SQL` no `apostas.js`).
+
+### Correções
+- Partidas FF: botões da thread (`ffm:*`) agora rodam em **fila por partida** (`ffLockMatch`), evitando que dois cliques simultâneos (ex.: dois jogadores confirmando) sobrescrevam o estado ou postem o pagamento duas vezes.
+- `ffPatchBet` / `ffPatchMatch` / `ffGetBet` / `ffGetMatch`: o `supabase-js` não lança exceção, devolve `{ error }` — antes ignorado. Agora é logado.
+- `ffCalcPlayerPay`: arredondamento em centavos sem `toFixed`.
+- Constantes `REDIRECT_URI` e `VERIFY_SECRET` sem fallback inválido/fixo no código (não eram usadas).
+- Servidor Express: erro ao abrir a porta é logado.
+- `unhandledRejection` / `uncaughtException` agora registram a **stack** completa.
+- Versão unificada em v1.2.0.
+
+---
+
 # BACK BOT — v1.1.0 (BACK E-ESPORTES 🐦‍⬛)
 
 ## Marca
