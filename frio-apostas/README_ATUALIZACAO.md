@@ -35,3 +35,12 @@ A lista de gerenciamento exibe até 25 publicações recentes por vez. As modali
 - A roleta concede coins virtuais já usados pelo sistema de perfil. O cooldown fica em memória e reinicia se o bot reiniciar.
 - Não compartilhe `DISCORD_TOKEN`, `SUPABASE_KEY` nem outras credenciais.
 - `node --check apostas.js` passou, mas o bot não foi executado contra Discord/Supabase real nesta sessão. Testes integrados ainda são necessários.
+
+
+## Integração com Frio Painel
+
+Configure as mesmas variáveis nos serviços de bot e painel: `PANEL_API_TOKEN` deve ser um segredo aleatório longo e idêntico nos dois serviços; o painel não precisa de uma URL de API do bot; `PANEL_API_TOKEN` permanece como segredo compartilhado para autenticação. O bot expõe `GET /health` para estado básico e `GET /api/bot/status` com Bearer token para verificação autenticada. Não coloque tokens no frontend nem os publique no repositório.
+
+## Roleta configurável
+
+Comandos de staff/dev: `.roletaconfig ver`, `.roletaconfig coins 0,1,5,10`, `.roletaconfig cargo ID_DO_CARGO`, `.roletaconfig dinheiro 10,00`, `.roletaconfig admincargo ID_DO_CARGO` e `.roletaconfig canal ID_DO_CANAL`. A configuração é salva em `roulette-config.json` ao lado do bot; mantenha o disco persistente no host ou faça backup desse arquivo. Prêmios em dinheiro criam solicitação de conferência manual, não efetuam transferência automática. A entrega de cargos exige permissão e hierarquia de cargos adequada no Discord.

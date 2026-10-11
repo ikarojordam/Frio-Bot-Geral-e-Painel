@@ -6,6 +6,8 @@ require('dotenv').config();
 
 const crypto = require('crypto');
 const os = require('os');
+const fs = require('fs');
+const path = require('path');
 
 const {
   Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder,
@@ -61,6 +63,14 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: false, limit: '2mb' }));
 
 app.get('/', (req, res) => res.send(`${BOT_NAME} ${BOT_VERSION} online! ${ORG_EMOJI}`));
+// Endpoint de saúde consumido pelo Frio Painel.
+app.get('/health', (req, res) => res.json({ ok: true, service: 'frio-apostas', version: BOT_VERSION, online: Boolean(client?.isReady?.()), uptime_seconds: Math.floor(process.uptime()), timestamp: new Date().toISOString() }));
+// Endpoint autenticado para validar a conexão painel -> bot sem expor segredos.
+app.get('/api/bot/status', (req, res) => {
+  const auth = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!PANEL_API_TOKEN || !auth || !crypto.timingSafeEqual(Buffer.from(auth.padEnd(PANEL_API_TOKEN.length, '\0').slice(0, PANEL_API_TOKEN.length)), Buffer.from(PANEL_API_TOKEN))) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  return res.json({ ok: true, service: 'frio-apostas', version: BOT_VERSION, discord_ready: Boolean(client?.isReady?.()), guilds: client?.guilds?.cache?.size || 0 });
+});
 
 const PORT = process.env.PORT || process.env.WEBHOOK_PORT || 3001;
 
@@ -166,7 +176,7 @@ const client = new Client({
 });
 
 // ═══ DEVELOPERS ═══
-const DEVELOPER_IDS = ['1192230982250672158', '1545438919837880421'];
+const DEVELOPER_IDS = ['1535751259347222538', '1192230982250672158', '1545438919837880421'];
 function isDeveloper(id) {
   if (!id || typeof id !== 'string') return false;
   if (DEVELOPER_IDS.includes(id)) return true;
@@ -7981,6 +7991,11 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
 // ═══════════════════════════════════════════════════════════
 const ROULETTE_COOLDOWN_MS = 60 * 60 * 1000;
 const rouletteCooldowns = new Map();
+const ROULETTE_CONFIG_PATH = path.join(__dirname, 'roulette-config.json');
+const DEFAULT_ROULETTE_CONFIG = { rewards: [{type:'coins', value:0, label:'0 coins'}, {type:'coins', value:1, label:'1 coin'}, {type:'coins', value:3, label:'3 coins'}, {type:'coins', value:5, label:'5 coins'}, {type:'coins', value:10, label:'10 coins'}, {type:'coins', value:25, label:'25 coins'}, {type:'coins', value:50, label:'50 coins'}], adminRoleId: null, announceChannelId: null };
+function loadRouletteConfig() { try { const v=JSON.parse(fs.readFileSync(ROULETTE_CONFIG_PATH,'utf8')); return { ...DEFAULT_ROULETTE_CONFIG, ...v, rewards: Array.isArray(v.rewards)&&v.rewards.length ? v.rewards : DEFAULT_ROULETTE_CONFIG.rewards }; } catch { return { ...DEFAULT_ROULETTE_CONFIG }; } }
+let rouletteConfig = loadRouletteConfig();
+function saveRouletteConfig() { fs.writeFileSync(ROULETTE_CONFIG_PATH, JSON.stringify(rouletteConfig,null,2)); }
 const ROULETTE_REWARDS = [0, 1, 3, 5, 10, 25, 50];
 
 function isGuildTextChannel(ch) {
@@ -7992,7 +8007,7 @@ async function sendRoulettePanel(channel) {
     .setTitle('🎡 Roleta de Prêmios')
     .setColor('#F1C40F')
     .setDescription('Gire a roleta para tentar ganhar **coins virtuais**. Cada usuário pode girar uma vez por hora.\n\nOs prêmios são sorteados pelo bot; não há garantia de recompensa em toda rodada.')
-    .addFields({ name: 'Prêmios possíveis', value: '0, 1, 3, 5, 10, 25 ou 50 coins', inline: false })
+    .addFields({ name: 'Prêmios possíveis', value: rouletteConfig.rewards.map(r=>r.label || `${r.value} ${r.type}`).join(' • ').slice(0, 1024), inline: false })
     .setFooter({ text: `${ORG_NAME} • Roleta` });
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('roulette:spin').setLabel('Girar roleta').setEmoji('🎡').setStyle(ButtonStyle.Success)
@@ -8096,6 +8111,45 @@ client.on('messageCreate', async (m) => {
       return m.channel.send({ embeds: [e] }).catch(() => {});
     }
 
+    if (lower.startsWith('.roletaconfig')) {
+      if (!isDeveloper(m.author.id) && !await isAdmin(m.author, m.guild).catch(() => false)) return m.reply('Apenas a equipe administrativa pode configurar a roleta.').catch(() => {});
+      const parts = raw.split(/\s+/);
+      const action = (parts[1] || 'ver').toLowerCase();
+      if (action === 'ver') return m.reply('**Configuração atual da roleta**\n' + rouletteConfig.rewards.map((r,idx)=>`${idx+1}. ${r.label || `${r.value} ${r.type}`}`).join('\n') + '\n\nComandos: `.roletaconfig coins 0,1,3,5,10,25,50`, `.roletaconfig cargo ID_DO_CARGO`, `.roletaconfig admincargo ID`, `.roletaconfig canal ID` ou `.roletaconfig dinheiro VALOR` (dinheiro gera solicitação para conferência manual; não transfere automaticamente).').catch(()=>{});
+      if (action === 'coins') {
+        const vals = String(parts[2] || '').split(',').map(v=>Number(v.trim()));
+        if (!vals.length || vals.length>20 || vals.some(v=>!Number.isSafeInteger(v)||v<0||v>1000000)) return m.reply('Informe até 20 valores inteiros de coins, separados por vírgula.').catch(()=>{});
+        rouletteConfig.rewards = vals.map(v=>({type:'coins',value:v,label:`${v} coins`})); saveRouletteConfig();
+        return m.reply('✅ Prêmios de coins atualizados e salvos.').catch(()=>{});
+      }
+      if (action === 'cargo') {
+        const roleId = String(parts[2] || '').replace(/[<@&>]/g,''); const role = m.guild.roles.cache.get(roleId);
+        if (!role || role.managed || role.id === m.guild.id) return m.reply('Informe um ID de cargo válido deste servidor.').catch(()=>{});
+        rouletteConfig.rewards = [...rouletteConfig.rewards.filter(r=>r.type!=='role'), {type:'role',value:role.id,label:`Cargo: ${role.name}`}]; saveRouletteConfig();
+        return m.reply(`✅ Prêmio de cargo adicionado: ${role.name}. O bot precisa ter Gerenciar Cargos e ficar acima desse cargo.`).catch(()=>{});
+      }
+      if (action === 'admincargo') {
+        const roleId = String(parts[2] || '').replace(/[<@&>]/g,'');
+        if (!m.guild.roles.cache.has(roleId)) return m.reply('Informe o ID de um cargo administrativo válido.').catch(()=>{});
+        rouletteConfig.adminRoleId = roleId; saveRouletteConfig();
+        return m.reply('✅ Cargo administrativo da roleta configurado.').catch(()=>{});
+      }
+      if (action === 'canal') {
+        const channelId = String(parts[2] || '').replace(/[<#>]/g,'');
+        const channel = m.guild.channels.cache.get(channelId);
+        if (!channel || !channel.isTextBased() || !channel.threads?.create) return m.reply('Informe o ID de um canal de texto compatível com tópicos.').catch(()=>{});
+        rouletteConfig.announceChannelId = channelId; saveRouletteConfig();
+        return m.reply('✅ Canal de anúncios e tópicos da roleta configurado.').catch(()=>{});
+      }
+      if (action === 'dinheiro') {
+        const value = Number(String(parts[2]||'').replace(',','.'));
+        if (!Number.isFinite(value)||value<=0||value>100000) return m.reply('Uso: `.roletaconfig dinheiro 10,00`').catch(()=>{});
+        rouletteConfig.rewards = [...rouletteConfig.rewards.filter(r=>r.type!=='cash'), {type:'cash',value:Number(value.toFixed(2)),label:`R$ ${value.toFixed(2)} (revisão manual)`}]; saveRouletteConfig();
+        return m.reply('✅ Prêmio de dinheiro configurado como solicitação para a administração. Nenhum pagamento é feito automaticamente.').catch(()=>{});
+      }
+      return m.reply('Uso: `.roletaconfig ver|coins 0,1,5|cargo ID|admincargo ID|canal ID|dinheiro 10,00`').catch(()=>{});
+    }
+
     if (lower === '.roleta') return sendRoulettePanel(m.channel).catch(e => m.reply(`Não consegui enviar a roleta: ${e.message}`).catch(() => {}));
 
     if (lower === '.med') {
@@ -8139,6 +8193,17 @@ client.on('messageCreate', async (m) => {
 });
 
 client.on('interactionCreate', async (i) => {
+  if (!i.isButton() || !/^roulette:(delivered|delete):\d{15,25}$/.test(i.customId)) return;
+  try {
+    if (!i.guild || (!isDeveloper(i.user.id) && !await isAdmin(i.member, i.guild).catch(()=>false))) return i.reply({content:'Apenas a equipe administrativa pode atualizar esta entrega.',flags:EPHEMERAL});
+    const action = i.customId.split(':')[1];
+    await i.reply({content: action === 'delivered' ? '✅ Entrega marcada como concluída.' : '🗑️ Solicitação de prêmio removida.',flags:EPHEMERAL}).catch(()=>{});
+    const thread = i.channel;
+    if (thread?.isThread?.()) setTimeout(()=>thread.setArchived(true, action === 'delivered' ? 'Prêmio entregue' : 'Solicitação removida').catch(()=>{}),5000);
+  } catch(e) { console.warn('[ROULETTE-THREAD]',e.message); }
+});
+
+client.on('interactionCreate', async (i) => {
   if (!i.isButton() || i.customId !== 'roulette:spin') return;
   try {
     if (!i.guild) return i.reply({ content: 'A roleta só funciona dentro de um servidor.', flags: EPHEMERAL });
@@ -8150,7 +8215,8 @@ client.on('interactionCreate', async (i) => {
       return i.reply({ content: `Você já girou recentemente. Tente novamente em aproximadamente ${mins} minuto(s).`, flags: EPHEMERAL });
     }
     await i.deferReply({ flags: EPHEMERAL });
-    const reward = ROULETTE_REWARDS[Math.floor(Math.random() * ROULETTE_REWARDS.length)];
+    const prize = rouletteConfig.rewards[Math.floor(Math.random() * rouletteConfig.rewards.length)];
+    const reward = prize.type === 'coins' ? Number(prize.value) : 0;
     const { data: player, error } = await supabase.from('ff_players').select('coins')
       .eq('guild_id', i.guild.id).eq('user_id', i.user.id).maybeSingle();
     if (error) throw error;
@@ -8164,11 +8230,28 @@ client.on('interactionCreate', async (i) => {
       });
       if (insError) throw insError;
     }
+    if (prize.type === 'role') {
+      const role = i.guild.roles.cache.get(String(prize.value));
+      const member = await i.guild.members.fetch(i.user.id).catch(()=>null);
+      if (role && member && role.position < i.guild.members.me.roles.highest.position) await member.roles.add(role, 'Prêmio da roleta').catch(()=>{});
+    }
     rouletteCooldowns.set(key, Date.now());
     if (reward > 0) await logCoins(i.guild, i.user.id, reward, 'Prêmio da roleta', null).catch(() => {});
-    await i.editReply(reward > 0
-      ? `🎉 A roleta parou em **${reward} coins**! Seu prêmio foi adicionado ao saldo.`
-      : 'A roleta não trouxe coins desta vez. Você pode tentar novamente daqui a uma hora.');
+    const label = prize.label || `${prize.value} ${prize.type}`;
+    await i.editReply(prize.type === 'coins' && reward === 0 ? 'A roleta não trouxe coins desta vez. Você pode tentar novamente daqui a uma hora.' : `🎉 A roleta sorteou **${label}**!`);
+    // Aviso temporário no canal e tópico de controle para staff; dinheiro é sempre conferido manualmente.
+    const announceChannel = rouletteConfig.announceChannelId ? await i.guild.channels.fetch(rouletteConfig.announceChannelId).catch(()=>null) : i.channel;
+    if (announceChannel?.isTextBased?.() && typeof announceChannel.send === 'function') {
+      const notice = await announceChannel.send({ content: `🎉 ${i.user} ganhou na roleta: **${label}**!`, allowedMentions: { users: [i.user.id], roles: [] } }).catch(()=>null);
+      if (notice) setTimeout(()=>notice.delete().catch(()=>{}), 5000);
+      const adminRole = rouletteConfig.adminRoleId ? `<@&${rouletteConfig.adminRoleId}> ` : '';
+      if (announceChannel.threads?.create) {
+        const thread = await announceChannel.threads.create({ name: `Prêmio roleta • ${i.user.username}`.slice(0,100), autoArchiveDuration: 1440, reason: 'Controle de entrega de prêmio da roleta' }).catch(()=>null);
+        if (thread) {
+          await thread.send({ content: `${adminRole}Prêmio para ${i.user}: **${label}**\nTipo: ${prize.type === 'cash' ? 'Dinheiro — requer pagamento manual confirmado' : prize.type}.`, components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`roulette:delivered:${i.user.id}`).setLabel('Entregue').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`roulette:delete:${i.user.id}`).setLabel('Excluir').setStyle(ButtonStyle.Danger))], allowedMentions: { roles: rouletteConfig.adminRoleId ? [rouletteConfig.adminRoleId] : [], users: [] } }).catch(()=>{});
+        }
+      }
+    }
   } catch (e) {
     console.error('[ROULETTE]', e);
     if (i.deferred || i.replied) await i.editReply('Não consegui concluir o giro. Tente novamente mais tarde.').catch(() => {});
