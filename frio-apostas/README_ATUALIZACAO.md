@@ -44,3 +44,12 @@ Configure as mesmas variáveis nos serviços de bot e painel: `PANEL_API_TOKEN` 
 ## Roleta configurável
 
 Comandos de staff/dev: `.roletaconfig ver`, `.roletaconfig coins 0,1,5,10`, `.roletaconfig cargo ID_DO_CARGO`, `.roletaconfig dinheiro 10,00`, `.roletaconfig admincargo ID_DO_CARGO` e `.roletaconfig canal ID_DO_CANAL`. A configuração é salva em `roulette-config.json` ao lado do bot; mantenha o disco persistente no host ou faça backup desse arquivo. Prêmios em dinheiro criam solicitação de conferência manual, não efetuam transferência automática. A entrega de cargos exige permissão e hierarquia de cargos adequada no Discord.
+
+## Direitos autorais e uso do projeto
+
+© 2026 Frio Painel / Frio Bot. Todos os direitos reservados sobre os materiais originais deste projeto, incluindo código, documentação, identidade visual e conteúdo criado para ele, ressalvados componentes de terceiros e suas respectivas licenças. Este pacote não é oferecido sob uma licença open source geral; não copie, redistribua, revenda ou publique versões modificadas dos materiais originais sem autorização escrita, salvo quando uma licença de terceiro ou a legislação aplicável permitir.
+
+Para suporte, pedidos de autorização ou denúncias de uso indevido: **friomortalcoracaogelado@gmail.com**. Comunidade: https://discord.gg/n3Zd4bTFS
+
+Esse aviso não revoga licenças de terceiros já aplicáveis, não garante por si só a titularidade de cada arquivo e não substitui aconselhamento jurídico.
+

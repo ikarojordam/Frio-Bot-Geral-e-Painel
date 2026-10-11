@@ -1,3 +1,9 @@
+/*
+ * © 2026 Frio Painel / Frio Bot. Todos os direitos reservados sobre os materiais
+ * originais deste arquivo, ressalvados componentes e dependências de terceiros.
+ * Uso, cópia ou redistribuição somente conforme autorização escrita e licenças aplicáveis.
+ * Contato: friomortalcoracaogelado@gmail.com | Discord: https://discord.gg/n3Zd4bTFS
+ */
 // ═══════════════════════════════════════════════════════════
 // 🐦‍⬛ BACK E-ESPORTES — BACK BOT — apostas.js — v1.3.0
 // PARTE 1/7: Base, Client, Config, Permissões, FF Config, PIX

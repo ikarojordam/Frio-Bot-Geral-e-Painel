@@ -26,5 +26,6 @@
     "apostas"
   ],
   "author": "FrioBot",
-  "license": "MIT"
+  "license": "UNLICENSED",
+  "private": true
 }
