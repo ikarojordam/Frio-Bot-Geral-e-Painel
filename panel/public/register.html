@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/auth.css?v=20261009">
-<link rel="stylesheet" href="/assets/theme.css?v=20261010">
+<link rel="stylesheet" href="/assets/theme.css?v=20261011">
 <script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
 </head>
 <body class="auth-body">
@@ -353,5 +353,16 @@
   });
 })();
 </script>
+
+<footer class="frio-global-footer" aria-label="Contato e direitos autorais">
+  <span class="frio-footer-brand">FRIO PAINEL</span>
+  <span>© <span class="frio-current-year"></span> Frio Painel · Todos os direitos reservados.</span>
+  <a href="/terms">Termos e direitos autorais</a>
+  <a href="/privacy">Privacidade</a>
+  <a href="mailto:friomortalcoracaogelado@gmail.com">Suporte e contato</a>
+  <a href="https://discord.gg/n3Zd4bTFS" target="_blank" rel="noopener noreferrer">Discord oficial</a>
+</footer>
+<script>document.querySelectorAll('.frio-current-year').forEach(function(el){el.textContent=new Date().getFullYear()});</script>
+
 </body>
 </html>

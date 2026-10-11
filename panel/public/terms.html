@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/legal.css?v=20261009">
-<link rel="stylesheet" href="/assets/theme.css?v=20261010">
+<link rel="stylesheet" href="/assets/theme.css?v=20261011">
 <script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
 </head>
 <body class="legal-body">
@@ -193,15 +193,30 @@
     <section id="propriedade" class="legal-section">
       <h2><span class="legal-num">8</span>Propriedade Intelectual</h2>
       <p>
-        Todo o código-fonte, marca, identidade visual, layout, banco de dados,
-        documentação e conteúdo do Frio Bot / Frio Painel são de propriedade
-        exclusiva dos seus desenvolvedores, protegidos pela Lei 9.610/98
-        (Direitos Autorais) e Lei 9.279/96 (Propriedade Industrial).
+        O código-fonte, a arquitetura, a marca Frio Painel / Frio Bot, a identidade visual,
+        os textos, os elementos gráficos, a documentação e os materiais originais do projeto
+        são protegidos pela legislação aplicável, incluindo a Lei nº 9.610/1998 (Direitos Autorais)
+        e, quando cabível, a Lei nº 9.279/1996 (Propriedade Industrial). Os direitos de terceiros
+        e componentes licenciados permanecem sujeitos às respectivas licenças.
       </p>
       <p>
-        O uso do painel <strong>não transfere</strong> ao Usuário nenhum direito
-        de propriedade sobre o software. Concede-se apenas uma licença limitada,
-        revogável e não exclusiva de uso, conforme o plano adquirido.
+        Salvo autorização prévia e expressa por escrito ou permissão prevista em licença aplicável,
+        não é permitido copiar, republicar, vender, sublicenciar, distribuir, modificar para redistribuição,
+        remover avisos de autoria ou apresentar como próprio o código, o design, os textos ou os recursos
+        exclusivos do projeto. O acesso ao painel não transfere a titularidade nem concede licença além
+        daquela estritamente necessária para usar o serviço contratado.
+      </p>
+      <p>
+        <strong>Proteção de comunidades e servidor Discord:</strong> os nomes, ícones, artes, mensagens,
+        configurações e materiais originais da comunidade Frio devem ser usados apenas com autorização.
+        Não se deve clonar ou se passar pelo servidor oficial, copiar sua identidade visual para enganar
+        membros, divulgar convites falsos, reutilizar conteúdo privado sem permissão ou tentar obter acesso
+        indevido. Denúncias de cópia ou uso indevido podem ser encaminhadas ao contato informado abaixo;
+        medidas cabíveis serão avaliadas conforme os fatos, as regras do Discord e a legislação aplicável.
+      </p>
+      <p class="legal-note">
+        Este aviso registra as regras de uso do projeto, mas não cria direitos sobre materiais de terceiros
+        nem substitui a análise jurídica de um caso concreto.
       </p>
     </section>
 
@@ -259,9 +274,9 @@
       <h2><span class="legal-num">13</span>Contato</h2>
       <p>Dúvidas sobre estes Termos podem ser encaminhadas por:</p>
       <ul class="legal-list">
-        <li><strong>Suporte:</strong> pelo próprio painel (Minhas Sessões / Suporte);</li>
-        <li><strong>E-mail:</strong> <a href="mailto:suporte@friopainel.app">suporte@friopainel.app</a>;</li>
-        <li><strong>DPO / Privacidade:</strong> <a href="mailto:privacidade@friopainel.app">privacidade@friopainel.app</a>.</li>
+        <li><strong>Suporte e contato:</strong> <a href="mailto:friomortalcoracaogelado@gmail.com">friomortalcoracaogelado@gmail.com</a>;</li>
+        <li><strong>Comunidade oficial no Discord:</strong> <a href="https://discord.gg/n3Zd4bTFS" target="_blank" rel="noopener noreferrer">discord.gg/n3Zd4bTFS</a>;</li>
+        <li><strong>Direitos autorais / denúncias:</strong> envie o link do conteúdo, a descrição do material original e evidências para o e-mail acima.</li>
       </ul>
     </section>
 
@@ -271,6 +286,8 @@
         <a href="/privacy"><i data-lucide="shield"></i>Privacidade</a>
         <a href="/login"><i data-lucide="log-in"></i>Entrar</a>
         <a href="/register"><i data-lucide="user-plus"></i>Criar conta</a>
+        <a href="mailto:friomortalcoracaogelado@gmail.com"><i data-lucide="mail"></i>Suporte</a>
+        <a href="https://discord.gg/n3Zd4bTFS" target="_blank" rel="noopener noreferrer"><i data-lucide="messages-square"></i>Discord</a>
       </div>
       <p class="legal-foot-copy">
         &copy; <span id="year"></span> Frio Painel. Todos os direitos reservados.
@@ -316,5 +333,16 @@
   });
 })();
 </script>
+
+<footer class="frio-global-footer" aria-label="Contato e direitos autorais">
+  <span class="frio-footer-brand">FRIO PAINEL</span>
+  <span>© <span class="frio-current-year"></span> Frio Painel · Todos os direitos reservados.</span>
+  <a href="/terms">Termos e direitos autorais</a>
+  <a href="/privacy">Privacidade</a>
+  <a href="mailto:friomortalcoracaogelado@gmail.com">Suporte e contato</a>
+  <a href="https://discord.gg/n3Zd4bTFS" target="_blank" rel="noopener noreferrer">Discord oficial</a>
+</footer>
+<script>document.querySelectorAll('.frio-current-year').forEach(function(el){el.textContent=new Date().getFullYear()});</script>
+
 </body>
 </html>

@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/landing.css?v=20261009">
-<link rel="stylesheet" href="/assets/theme.css?v=20261010">
+<link rel="stylesheet" href="/assets/theme.css?v=20261011">
 <script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
 </head>
 <body>
@@ -90,7 +90,7 @@
       <div class="mockup">
         <div class="mockup-bar">
           <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-          <span class="mockup-url">friopainel.app / visão geral</span>
+          <span class="mockup-url">Frio Painel / visão geral</span>
         </div>
         <div class="mockup-body">
           <div class="mockup-side">
@@ -325,15 +325,15 @@
 
     <div class="footer-col">
       <h5>Comunidade</h5>
-      <a href="#" id="footDiscord" target="_blank" rel="noopener">Discord</a>
-      <a href="#" id="footSupport">Suporte</a>
+      <a href="https://discord.gg/n3Zd4bTFS" id="footDiscord" target="_blank" rel="noopener noreferrer">Discord da comunidade</a>
+      <a href="mailto:friomortalcoracaogelado@gmail.com" id="footSupport">Suporte por e-mail</a>
       <a href="/terms#contato">Contato</a>
     </div>
   </div>
 
   <div class="footer-bottom">
     <span>&copy; <span id="year"></span> Frio Painel. Todos os direitos reservados.</span>
-    <span class="footer-meta">Feito com segurança e café ☕</span>
+    <span class="footer-meta">Suporte: <a href="mailto:friomortalcoracaogelado@gmail.com">friomortalcoracaogelado@gmail.com</a> · Feito com segurança e café ☕</span>
   </div>
 </footer>
 
@@ -411,7 +411,7 @@
 
   document.getElementById('navAddBot')?.addEventListener('click', addBotHandler);
   document.getElementById('heroAddBot')?.addEventListener('click', addBotHandler);
-  document.getElementById('footDiscord')?.setAttribute('href', '#');
+  document.getElementById('footDiscord')?.setAttribute('href', 'https://discord.gg/n3Zd4bTFS');
 
   // Reveal on scroll
   const io = new IntersectionObserver((entries) => {
