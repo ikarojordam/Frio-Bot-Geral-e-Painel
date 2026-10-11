@@ -24,7 +24,7 @@ const { createClient } = require('@supabase/supabase-js');
 const QRCode = require('qrcode');
 
 // ═══ VERSÃO ═══
-const BOT_VERSION = 'v1.3.0';
+const BOT_VERSION = 'v1.4.0';
 
 // ═══ MARCA ═══
 const ORG_NAME  = 'BACK E-ESPORTES';
@@ -1284,6 +1284,24 @@ async function ffBuildMediatorPixPanel(gid) {
 // ═══════════════════════════════════════════════════════════
 // HUB PRINCIPAL
 // ═══════════════════════════════════════════════════════════
+async function ffPanelEmbedsManuais(gid) {
+  const { data, error } = await supabase.from('ff_bets').select('id,format,value,channel_id,message_id')
+    .eq('guild_id', gid).not('message_id', 'is', null).order('created_at', { ascending: false }).limit(25);
+  const e = new EmbedBuilder().setTitle('🧩 Embeds manuais de apostas').setColor('#F1C40F')
+    .setDescription(error
+      ? `Não consegui carregar os embeds: ${error.message}`
+      : `Crie embeds por modalidade e escolha canal/valor manualmente. Você também pode editar ou excluir um embed já publicado.\n\n**Publicações recentes:**\n${data?.length ? data.slice(0, 12).map((b, n) => `**${n + 1}.** ${b.format} · R$ ${Number(b.value || 0).toFixed(2)} · <#${b.channel_id}>`).join('\n') : '*Nenhum embed publicado encontrado.*'}`)
+    .setFooter({ text: 'As modalidades usam a lista configurada em FF_FORMATS.' });
+  return { embeds: [e], components: [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('ffcfg:embed_create').setLabel('Criar').setEmoji('➕').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('ffcfg:embed_edit').setLabel('Editar').setEmoji('✏️').setStyle(ButtonStyle.Primary).setDisabled(!data?.length || !!error),
+      new ButtonBuilder().setCustomId('ffcfg:embed_delete').setLabel('Excluir').setEmoji('🗑️').setStyle(ButtonStyle.Danger).setDisabled(!data?.length || !!error),
+      new ButtonBuilder().setCustomId('ffcfg:back').setLabel('Voltar').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+    ),
+  ] };
+}
+
 async function ffConfigPanel(gid) {
   const c = await ffGetConfig(gid);
   const isPrem = await isPremium(gid);
@@ -1330,6 +1348,7 @@ async function ffConfigPanel(gid) {
         new ButtonBuilder().setCustomId('ffcfg:postar').setLabel('Postar').setEmoji('📢').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('ffcfg:postar_auto').setLabel('Postar em massa').setEmoji('⚡').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('ffcfg:postar_por_canal').setLabel('Por canal').setEmoji('📁').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('ffcfg:embeds').setLabel('Embeds manuais').setEmoji('🧩').setStyle(ButtonStyle.Secondary),
       ),
     ],
   };
@@ -1531,12 +1550,19 @@ async function ffRunAutoMessageScheduler() {
       const allowedMentions = item.role_id
         ? { parse: [], roles: [item.role_id], users: [], repliedUser: false }
         : { parse: [], users: [], roles: [], repliedUser: false };
+      // Mantém apenas a mensagem mais recente de cada automação.
+      if (item.last_message_id) {
+        const previous = await channel.messages.fetch(item.last_message_id).catch(() => null);
+        if (previous) await previous.delete().catch(() => {});
+      }
+      let sent;
       if (item.message_type === 'embed') {
         const embed = new EmbedBuilder().setColor('#5865F2').setDescription(content.slice(0, 4000)).setTimestamp();
-        await channel.send({ content: item.role_id ? `<@&${item.role_id}>` : undefined, embeds: [embed], allowedMentions });
+        sent = await channel.send({ content: item.role_id ? `<@&${item.role_id}>` : undefined, embeds: [embed], allowedMentions });
       } else {
-        await channel.send({ content: `${item.role_id ? `<@&${item.role_id}> ` : ''}${content}`.slice(0, 2000), allowedMentions });
+        sent = await channel.send({ content: `${item.role_id ? `<@&${item.role_id}> ` : ''}${content}`.slice(0, 2000), allowedMentions });
       }
+      await supabase.from('ff_auto_messages').update({ last_message_id: sent.id }).eq('id', item.id).eq('guild_id', item.guild_id);
     } catch (err) {
       console.warn('[AUTO-MSG] Falha ao enviar:', err.message);
     } finally {
@@ -1820,10 +1846,12 @@ client.on('interactionCreate', async (i) => {
     // ═══════════════════════════════════════════════════════════
     if (ns === 'ffm') {
       const matchId = rest[0];
+      const preAck = ['encerrar', 'escolher_venc'].includes(action);
+      if (preAck && !i.deferred && !i.replied) await i.deferReply({ flags: EPHEMERAL });
       const releaseMatch = await ffLockMatch(matchId);
       try {
       const m = await ffGetMatch(matchId);
-      if (!m) return i.reply({ content: '❌ Match não encontrado.', flags: EPHEMERAL });
+      if (!m) return preAck ? i.editReply({ content: '❌ Match não encontrado.' }) : i.reply({ content: '❌ Match não encontrado.', flags: EPHEMERAL });
       const players = parseJson(m.players);
       const isP = players.includes(i.user.id), isS = await isAdmin(i.user, guild);
       const isMed = m.mediator_id ? i.user.id === m.mediator_id : false;
@@ -1887,7 +1915,7 @@ client.on('interactionCreate', async (i) => {
 
       // ─── ENCERRAR FILA ───
       if (action === 'encerrar') {
-        if (!isP && !isS && !isMed) return i.reply({ content: '❌', flags: EPHEMERAL });
+        if (!isP && !isS && !isMed) return i.editReply({ content: '❌ Você não tem permissão para encerrar esta fila.' });
         await ffPatchMatch(matchId, { status: 'cancelled', finished_at: new Date().toISOString() });
         if (m.mediator_id) {
           await supabase.from('ff_mediator_queue').update({ status: 'waiting', current_match_id: null })
@@ -1897,7 +1925,7 @@ client.on('interactionCreate', async (i) => {
         await ffCleanupThread(i.channel);
         await i.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Fila cancelada').setColor('#ff5555').setDescription(`Encerrada por <@${i.user.id}>`).setTimestamp()] });
         setTimeout(() => i.channel.setArchived(true).catch(() => {}), 8000);
-        return i.reply({ content: '✅ Cancelado.', flags: EPHEMERAL });
+        return i.editReply({ content: '✅ Fila cancelada.' });
       }
 
       // ─── CONFIG PIX ───
@@ -1986,16 +2014,15 @@ client.on('interactionCreate', async (i) => {
 
       // ─── ESCOLHER VENCEDOR ───
       if (action === 'escolher_venc') {
-        if (!isMed && !isS && !isDev) return i.reply({ content: '❌', flags: EPHEMERAL });
+        if (!isMed && !isS && !isDev) return i.editReply({ content: '❌ Você não tem permissão para escolher o vencedor.' });
         const menu = new StringSelectMenuBuilder().setCustomId(`ffm:pick_winner:${matchId}`).setPlaceholder('🏆 Selecione o vencedor');
         for (const p of players) {
           const u = await client.users.fetch(p).catch(() => null);
           menu.addOptions({ label: u?.username || p, value: p, emoji: '🏆' });
         }
-        return i.reply({
+        return i.editReply({
           embeds: [new EmbedBuilder().setTitle('🏆 Escolher vencedor').setColor('#f1c40f')],
           components: [new ActionRowBuilder().addComponents(menu)],
-          flags: EPHEMERAL,
         });
       }
 
@@ -2342,6 +2369,7 @@ client.on('interactionCreate', async (i) => {
       if (!isO && !isS && !isDev) return i.reply({ content: '❌', flags: EPHEMERAL });
 
       if (action === 'back') return i.update(await ffConfigPanel(guild.id));
+      if (action === 'embeds') return i.update(await ffPanelEmbedsManuais(guild.id));
 
       if (action === 'panel') {
         const tt = rest[0];
@@ -2354,6 +2382,7 @@ client.on('interactionCreate', async (i) => {
         if (tt === 'automacoes') return i.update(await ffPanelAutomacoes(guild.id));
         if (tt === 'mensagens') return i.update(await ffPanelAutoMensagens(guild.id));
         if (tt === 'loja_coins') return i.update(await ffPanelLojaCoins(guild.id));
+        if (tt === 'embeds') return i.update(await ffPanelEmbedsManuais(guild.id));
       }
 
       if (action === 'toggle') {
@@ -2454,6 +2483,21 @@ client.on('interactionCreate', async (i) => {
         return i.update(await ffPanelValores(guild.id));
       }
 
+      if (action === 'embed_create') {
+        const menu = new StringSelectMenuBuilder().setCustomId('ffcfg:postar_pick_format').setPlaceholder('📢 Escolha a modalidade');
+        for (const f of FF_FORMATS) menu.addOptions({ label: f.label, value: f.id, emoji: f.emoji });
+        return i.reply({ embeds: [new EmbedBuilder().setTitle('➕ Criar embed manual').setColor('#f1c40f').setDescription('Escolha a modalidade; depois selecione o canal e o valor.')], components: [new ActionRowBuilder().addComponents(menu)], flags: EPHEMERAL });
+      }
+      if (action === 'embed_edit' || action === 'embed_delete') {
+        const { data: bets, error } = await supabase.from('ff_bets')
+          .select('id,format,value,channel_id,message_id').eq('guild_id', guild.id).not('message_id', 'is', null)
+          .order('created_at', { ascending: false }).limit(25);
+        if (error) return i.reply({ content: `Falha ao carregar embeds: ${error.message}`, flags: EPHEMERAL });
+        if (!bets?.length) return i.reply({ content: 'Nenhum embed publicado para gerenciar.', flags: EPHEMERAL });
+        const menu = new StringSelectMenuBuilder().setCustomId(`ffcfg:${action}_pick`).setPlaceholder(action === 'embed_edit' ? 'Escolha o embed para editar' : 'Escolha o embed para excluir');
+        for (const b of bets) menu.addOptions({ label: `${b.format} · R$ ${Number(b.value || 0).toFixed(2)}`.slice(0, 100), description: `Canal ${b.channel_id}`.slice(0, 100), value: String(b.id) });
+        return i.reply({ embeds: [new EmbedBuilder().setTitle(action === 'embed_edit' ? '✏️ Editar embed' : '🗑️ Excluir embed').setColor('#f1c40f')], components: [new ActionRowBuilder().addComponents(menu)], flags: EPHEMERAL });
+      }
       if (action === 'postar') {
         const menu = new StringSelectMenuBuilder().setCustomId('ffcfg:postar_pick_format').setPlaceholder('📢 Modalidade');
         for (const f of FF_FORMATS) menu.addOptions({ label: f.label, value: f.id, emoji: f.emoji });
@@ -2588,6 +2632,8 @@ client.on('interactionCreate', async (i) => {
     try {
       if (i.isRepliable() && !i.replied && !i.deferred) {
         await i.reply({ content: `❌ ${err.message}`, flags: EPHEMERAL }).catch(() => {});
+      } else if (i.isRepliable() && i.deferred && !i.replied) {
+        await i.editReply({ content: `❌ A ação falhou: ${String(err.message || err).slice(0, 500)}` }).catch(() => {});
       }
     } catch {}
   }
@@ -2712,6 +2758,26 @@ client.on('interactionCreate', async (i) => {
       const type = action, field = rest[0];
 
 
+      if (action === 'embed_edit') {
+        const betId = rest[0];
+        const rawFormat = i.fields.getTextInputValue('format').trim();
+        const fmt = FF_FORMATS.find(f => f.id.toLowerCase() === rawFormat.toLowerCase() || f.label.toLowerCase() === rawFormat.toLowerCase());
+        const value = Number(i.fields.getTextInputValue('value').trim().replace(',', '.'));
+        if (!fmt) return i.reply({ content: 'Modalidade inválida. Use o ID ou nome exibido na lista de modalidades.', flags: EPHEMERAL });
+        if (!Number.isFinite(value) || value <= 0 || value > 1000000) return i.reply({ content: 'Valor inválido. Informe um número maior que zero.', flags: EPHEMERAL });
+        const { data: bet, error: loadError } = await supabase.from('ff_bets').select('*').eq('id', betId).eq('guild_id', guild.id).maybeSingle();
+        if (loadError || !bet) return i.reply({ content: 'Não consegui localizar esse embed.', flags: EPHEMERAL });
+        const { error: updateError } = await supabase.from('ff_bets').update({ format: fmt.label, value }).eq('id', betId).eq('guild_id', guild.id);
+        if (updateError) return i.reply({ content: `Falha ao salvar: ${updateError.message}`, flags: EPHEMERAL });
+        const cfg = await ffGetConfig(guild.id);
+        const channel = guild.channels.cache.get(bet.channel_id) || await guild.channels.fetch(bet.channel_id).catch(() => null);
+        const message = channel && bet.message_id ? await channel.messages.fetch(bet.message_id).catch(() => null) : null;
+        if (message) {
+          const updatedBet = { ...bet, format: fmt.label, value };
+          await message.edit({ embeds: [ffBuildBetEmbed(updatedBet, cfg)], components: [ffBuildBetButtons(bet.id, cfg)] }).catch(e => console.warn('[EMBED-EDIT] mensagem:', e.message));
+        }
+        return i.reply({ content: `Embed atualizado para **${fmt.label} — R$ ${value.toFixed(2)}**.`, flags: EPHEMERAL });
+      }
       if (action === 'auto_add' || action === 'auto_edit') {
         const channelId = i.fields.getTextInputValue('channel_id').trim().replace(/[<#>]/g, '');
         const messageType = i.fields.getTextInputValue('type').trim().toLowerCase();
@@ -2883,15 +2949,19 @@ client.on('interactionCreate', async (i) => {
 
     // ─── WINNER PICK ───
     if (ns === 'ffm' && action === 'pick_winner') {
+      // Acknowledge immediately: DB queries and profile updates can exceed Discord's 3s deadline.
+      await i.deferUpdate();
       const matchId = cid.split(':')[2];
       const m = await ffGetMatch(matchId);
-      if (!m) return i.reply({ content: '❌', flags: EPHEMERAL });
+      if (!m) return i.followUp({ content: '❌ Não foi possível localizar a partida.', flags: EPHEMERAL });
       const isS = await isAdmin(i.user, guild);
       const isMed = m.mediator_id ? i.user.id === m.mediator_id : false;
       const isDev = isDeveloper(i.user.id);
-      if (!isMed && !isS && !isDev) return i.reply({ content: '❌', flags: EPHEMERAL });
+      if (!isMed && !isS && !isDev) return i.followUp({ content: '❌ Você não tem permissão para escolher o vencedor.', flags: EPHEMERAL });
 
+      if (m.status === 'finished') return i.followUp({ content: 'Esta partida já foi finalizada; o prêmio não será creditado novamente.', flags: EPHEMERAL });
       const winner = value, players = parseJson(m.players);
+      if (!Array.isArray(players) || !players.includes(winner)) return i.followUp({ content: 'O usuário escolhido não pertence a esta partida.', flags: EPHEMERAL });
       const prize = Number(m.value || 0) * 2;
       const cfg = await ffGetConfig(guild.id);
       const fee = (Number(cfg?.mediator_fee) || 0) * players.length;
@@ -2914,6 +2984,20 @@ client.on('interactionCreate', async (i) => {
         });
         await logCoins(guild, winner, coins, `Vitória #${matchId}`, m.mediator_id);
       } catch (e) { console.error(e.message); }
+
+      // Registra derrota para os demais participantes, para que .p reflita estatísticas completas.
+      try {
+        for (const loser of players.filter(p => p !== winner)) {
+          const { data: lp } = await supabase.from('ff_players').select('losses')
+            .eq('guild_id', guild.id).eq('user_id', loser).maybeSingle();
+          if (lp) {
+            await supabase.from('ff_players').update({ losses: Number(lp.losses || 0) + 1 })
+              .eq('guild_id', guild.id).eq('user_id', loser);
+          } else {
+            await supabase.from('ff_players').insert({ guild_id: guild.id, user_id: loser, coins: 0, wins: 0, losses: 1 });
+          }
+        }
+      } catch (e) { console.error('[WINNER-LOSSES]', e.message); }
 
       try {
         if (m.mediator_id) {
@@ -2943,7 +3027,7 @@ client.on('interactionCreate', async (i) => {
         ).setTimestamp();
 
       await i.channel.send({ embeds: [e] });
-      await i.reply({ content: '✅ Vencedor registrado!', flags: EPHEMERAL });
+      await i.followUp({ content: '✅ Vencedor registrado!', flags: EPHEMERAL });
       setTimeout(() => i.channel.setArchived(true).catch(() => {}), 15000);
       return;
     }
@@ -3130,6 +3214,29 @@ client.on('interactionCreate', async (i) => {
         } catch (e) { return i.update({ content: `❌ ${e.message}`, embeds: [], components: [] }); }
       }
 
+      if (action === 'embed_edit_pick') {
+        const { data: bet, error } = await supabase.from('ff_bets').select('*').eq('id', value).eq('guild_id', guild.id).maybeSingle();
+        if (error || !bet) return i.update({ content: 'Embed não encontrado.', embeds: [], components: [] });
+        const fmt = FF_FORMATS.find(f => f.label === bet.format || f.id === bet.format);
+        const modal = new ModalBuilder().setCustomId(`ffcfg_modal:embed_edit:${bet.id}`).setTitle('Editar embed de aposta');
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('format').setLabel('ID ou nome da modalidade').setStyle(TextInputStyle.Short).setValue(fmt?.id || String(bet.format || '')).setRequired(true)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('value').setLabel('Valor da aposta (ex.: 5,00)').setStyle(TextInputStyle.Short).setValue(String(bet.value ?? 0)).setRequired(true)),
+        );
+        return i.showModal(modal);
+      }
+      if (action === 'embed_delete_pick') {
+        const { data: bet, error } = await supabase.from('ff_bets').select('id,channel_id,message_id').eq('id', value).eq('guild_id', guild.id).maybeSingle();
+        if (error || !bet) return i.update({ content: 'Embed não encontrado.', embeds: [], components: [] });
+        const channel = guild.channels.cache.get(bet.channel_id) || await guild.channels.fetch(bet.channel_id).catch(() => null);
+        if (channel && bet.message_id) {
+          const msg = await channel.messages.fetch(bet.message_id).catch(() => null);
+          if (msg) await msg.delete().catch(() => {});
+        }
+        await supabase.from('ff_bets').update({ message_id: null }).eq('id', bet.id).eq('guild_id', guild.id);
+        return i.update({ content: 'Embed removido do canal.', embeds: [], components: [] });
+      }
+
       if (action === 'coin_edit_pick') {
         const { data: item } = await supabase.from('ff_coin_shop').select('*').eq('id', value).maybeSingle();
         if (!item) return i.reply({ content: '❌', flags: EPHEMERAL });
@@ -3150,6 +3257,10 @@ client.on('interactionCreate', async (i) => {
     }
   } catch (err) {
     console.error('[SELECT-HANDLER]', err);
+    if (i?.isRepliable?.()) {
+      if (i.deferred || i.replied) await i.followUp({ content: `❌ Não consegui concluir essa seleção: ${String(err.message || err).slice(0, 400)}`, flags: EPHEMERAL }).catch(() => {});
+      else await i.reply({ content: `❌ Não consegui concluir essa seleção: ${String(err.message || err).slice(0, 400)}`, flags: EPHEMERAL }).catch(() => {});
+    }
   }
 });
 
@@ -4776,13 +4887,12 @@ async function openTicket(i, panel, tipo, formAnswers = []) {
     if (!id) return null;
     const ch = guild.channels.cache.get(id);
     if (!ch) return null;
-    if (ch.type === ChannelType.GuildCategory) return null;
-    if (!ch.isTextBased?.()) return null;
+    if (ch.type !== ChannelType.GuildText) return null;
     if (ch.isThread?.()) return null;
     return ch;
   };
 
-  let parentCh = resolveParent(tipo?.canal_id) || resolveParent(panel?.canal_id);
+  let parentCh = resolveParent(tipo?.topic_channel_id) || resolveParent(tipo?.canal_id) || resolveParent(panel?.canal_id);
   if (!parentCh && i.channel?.isTextBased?.() && !i.channel.isThread?.()) parentCh = i.channel;
 
   if (!parentCh && safeStr(panel?.categoria_padrao_id)) {
@@ -5279,7 +5389,8 @@ async function ticketTypesPanel(guildId, panelId) {
     ? tipos.map((t, idx) => {
         const canal = t.canal_id ? `<#${t.canal_id}>` : '*canal do painel*';
         const cargo = t.cargo_responsavel_id ? `<@&${t.cargo_responsavel_id}>` : '*cargo do painel*';
-        return `**${idx + 1}.** ${t.emoji || '🎫'} **${t.label}** — \`${t.id}\`\n> 📁 ${canal}\n> 🎭 ${cargo}`;
+        const topic = t.topic_channel_id ? `<#${t.topic_channel_id}>` : '*canal do ticket/painel*';
+        return `**${idx + 1}.** ${t.emoji || '🎫'} **${t.label}** — \`${t.id}\`\n> 📁 ${canal}\n> 🧵 Tópico: ${topic}\n> 🎭 ${cargo}`;
       }).join('\n\n')
     : '*Nenhum tipo ainda.*';
 
@@ -5745,12 +5856,32 @@ client.on('interactionCreate', async (i) => {
       const [_, action, panelId] = i.customId.split(':');
       const p = await getTicketPanel(i.guild.id, panelId);
       if (!p) return;
+      if (action === 'edit') {
+        if (!p.tipos?.length) return i.reply({ content: 'Nenhum tipo cadastrado.', flags: EPHEMERAL });
+        const menu = new StringSelectMenuBuilder().setCustomId(`tkttype:editpick:${panelId}`).setPlaceholder('Escolha o tipo para editar');
+        for (const t of p.tipos.slice(0, 25)) menu.addOptions({ label: `${t.emoji || '🎫'} ${t.label}`.slice(0, 100), value: String(t.id) });
+        return i.update({ embeds: [new EmbedBuilder().setTitle('✏️ Editar tipo de ticket')], components: [new ActionRowBuilder().addComponents(menu)] });
+      }
       if (action === 'add') {
         const m = new ModalBuilder().setCustomId(`tkttype_modal:add:${panelId}`).setTitle('Adicionar tipo');
         m.addComponents(
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('label').setLabel('Nome').setStyle(TextInputStyle.Short).setRequired(true)),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('emoji').setLabel('Emoji').setStyle(TextInputStyle.Short).setValue('🎫').setRequired(false)),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('descricao').setLabel('Descrição').setStyle(TextInputStyle.Short).setRequired(false)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('topic_channel_id').setLabel('ID do canal para o tópico (opcional)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(25)),
+        );
+        return i.showModal(m);
+      }
+      if (action === 'editpick') {
+        const typeId = i.values[0];
+        const t = p.tipos.find(x => String(x.id) === String(typeId));
+        if (!t) return i.update({ content: 'Tipo não encontrado.', embeds: [], components: [] });
+        const m = new ModalBuilder().setCustomId(`tkttype_modal:edit:${panelId}:${typeId}`).setTitle('Editar tipo');
+        m.addComponents(
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('label').setLabel('Nome').setStyle(TextInputStyle.Short).setValue(String(t.label || '').slice(0, 45)).setRequired(true)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('emoji').setLabel('Emoji').setStyle(TextInputStyle.Short).setValue(String(t.emoji || '🎫').slice(0, 100)).setRequired(false)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('descricao').setLabel('Descrição').setStyle(TextInputStyle.Short).setValue(String(t.descricao || '').slice(0, 100)).setRequired(false)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('topic_channel_id').setLabel('ID do canal do tópico (opcional)').setStyle(TextInputStyle.Short).setValue(String(t.topic_channel_id || '')).setRequired(false).setMaxLength(25)),
         );
         return i.showModal(m);
       }
@@ -5996,6 +6127,31 @@ client.on('interactionCreate', async (i) => {
         return i.reply({ ...(await ticketEditorPanel(i.guild.id, panelId)), flags: EPHEMERAL });
       }
 
+      if (cid.startsWith('tkttype_modal:edit:')) {
+        const [, , panelId, typeId] = cid.split(':');
+        const panel = await getTicketPanel(i.guild.id, panelId);
+        if (!panel) return i.reply({ content: 'Painel não encontrado.', flags: EPHEMERAL });
+        const t = panel.tipos.find(x => String(x.id) === String(typeId));
+        if (!t) return i.reply({ content: 'Tipo não encontrado.', flags: EPHEMERAL });
+        const label = i.fields.getTextInputValue('label').trim();
+        const emoji = i.fields.getTextInputValue('emoji')?.trim() || '🎫';
+        const descricao = i.fields.getTextInputValue('descricao')?.trim() || '';
+        const topicRaw = (i.fields.getTextInputValue('topic_channel_id') || '').trim().replace(/[<#>]/g, '');
+        let topic_channel_id = null;
+        if (topicRaw) {
+          const target = i.guild.channels.cache.get(topicRaw);
+          if (!/^\d{15,25}$/.test(topicRaw) || !target || target.type !== ChannelType.GuildText) {
+            return i.reply({ content: 'ID de canal inválido. Deixe vazio para usar o canal do ticket/painel.', flags: EPHEMERAL });
+          }
+          topic_channel_id = target.id;
+        }
+        t.label = label;
+        t.emoji = emoji;
+        t.descricao = descricao;
+        t.topic_channel_id = topic_channel_id;
+        await updateTicketPanel(i.guild.id, panelId, { tipos: panel.tipos });
+        return i.reply({ ...(await ticketTypesPanel(i.guild.id, panelId)), flags: EPHEMERAL });
+      }
       if (cid.startsWith('tkttype_modal:add:')) {
         const panelId = cid.split(':')[2];
         const panel = await getTicketPanel(i.guild.id, panelId);
@@ -6003,9 +6159,18 @@ client.on('interactionCreate', async (i) => {
         const label = i.fields.getTextInputValue('label').trim();
         const emoji = i.fields.getTextInputValue('emoji')?.trim() || '🎫';
         const descricao = i.fields.getTextInputValue('descricao')?.trim() || '';
+        const topicRaw = (i.fields.getTextInputValue('topic_channel_id') || '').trim().replace(/[<#>]/g, '');
+        let topic_channel_id = null;
+        if (topicRaw) {
+          const target = i.guild.channels.cache.get(topicRaw);
+          if (!/^\d{15,25}$/.test(topicRaw) || !target || target.type !== ChannelType.GuildText) {
+            return i.reply({ content: '❌ ID de canal inválido. Informe um canal de texto existente ou deixe vazio para usar o canal do ticket.', flags: EPHEMERAL });
+          }
+          topic_channel_id = target.id;
+        }
         const id = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30);
         if (panel.tipos.some(t => t.id === id)) return i.reply({ content: '❌ ID duplicado.', flags: EPHEMERAL });
-        panel.tipos.push({ id, label, emoji, descricao });
+        panel.tipos.push({ id, label, emoji, descricao, topic_channel_id });
         await updateTicketPanel(i.guild.id, panelId, { tipos: panel.tipos });
         return i.reply({ ...(await ticketTypesPanel(i.guild.id, panelId)), flags: EPHEMERAL });
       }
@@ -7809,6 +7974,209 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
   }};
 }
 
+
+
+// ═══════════════════════════════════════════════════════════
+// COMANDOS PREFIXADOS + PERFIL + ROLETA
+// ═══════════════════════════════════════════════════════════
+const ROULETTE_COOLDOWN_MS = 60 * 60 * 1000;
+const rouletteCooldowns = new Map();
+const ROULETTE_REWARDS = [0, 1, 3, 5, 10, 25, 50];
+
+function isGuildTextChannel(ch) {
+  return ch && [ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildForum, ChannelType.GuildMedia].includes(ch.type);
+}
+
+async function sendRoulettePanel(channel) {
+  const e = new EmbedBuilder()
+    .setTitle('🎡 Roleta de Prêmios')
+    .setColor('#F1C40F')
+    .setDescription('Gire a roleta para tentar ganhar **coins virtuais**. Cada usuário pode girar uma vez por hora.\n\nOs prêmios são sorteados pelo bot; não há garantia de recompensa em toda rodada.')
+    .addFields({ name: 'Prêmios possíveis', value: '0, 1, 3, 5, 10, 25 ou 50 coins', inline: false })
+    .setFooter({ text: `${ORG_NAME} • Roleta` });
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('roulette:spin').setLabel('Girar roleta').setEmoji('🎡').setStyle(ButtonStyle.Success)
+  );
+  return channel.send({ embeds: [e], components: [row] });
+}
+
+client.on('messageCreate', async (m) => {
+  if (!m.guild || m.author.bot) return;
+  const raw = String(m.content || '').trim();
+  const lower = raw.toLowerCase();
+  const member = m.member;
+
+  try {
+    // Tranca todos os canais de texto, mas preserva envio de mensagens em tópicos já existentes.
+    if (lower === '+lockall' || lower === '+unlockall') {
+      if (!member?.permissions?.has(PermissionFlagsBits.ManageChannels) && !isDeveloper(m.author.id)) {
+        return m.reply('Você precisa da permissão **Gerenciar Canais** para usar esse comando.').catch(() => {});
+      }
+      const locking = lower === '+lockall';
+      await m.reply(`${locking ? '🔒 Trancando' : '🔓 Destrancando'} canais... Isso pode levar alguns instantes.`).catch(() => {});
+      let ok = 0, fail = 0;
+      for (const ch of m.guild.channels.cache.values()) {
+        if (!isGuildTextChannel(ch)) continue;
+        try {
+          if (locking) {
+            await ch.permissionOverwrites.edit(m.guild.roles.everyone, {
+              SendMessages: false,
+              CreatePublicThreads: false,
+              CreatePrivateThreads: false,
+              SendMessagesInThreads: true,
+            }, { reason: `Comando ${locking ? '+lockall' : '+unlockall'} por ${m.author.tag}` });
+          } else {
+            const ow = ch.permissionOverwrites.cache.get(m.guild.roles.everyone.id);
+            if (ow) {
+              await ch.permissionOverwrites.edit(m.guild.roles.everyone, {
+                SendMessages: null,
+                CreatePublicThreads: null,
+                CreatePrivateThreads: null,
+                SendMessagesInThreads: null,
+              }, { reason: `Comando +unlockall por ${m.author.tag}` });
+              const after = ch.permissionOverwrites.cache.get(m.guild.roles.everyone.id);
+              if (after && after.allow.bitfield === 0n && after.deny.bitfield === 0n) await after.delete().catch(() => {});
+            }
+          }
+          ok++;
+        } catch (e) { fail++; console.warn(`[${locking ? 'LOCKALL' : 'UNLOCKALL'}] ${ch.id}: ${e.message}`); }
+      }
+      return m.channel.send(`${locking ? '🔒' : '🔓'} Operação concluída: **${ok}** canal(is) processado(s), **${fail}** falha(s).${locking ? '\nMensagens em tópicos existentes continuam permitidas; criar tópicos e falar fora deles foi bloqueado para @everyone.' : ''}`).catch(() => {});
+    }
+
+    if (lower === '+limpar' || lower.startsWith('+limpar ')) {
+      if (!member?.permissions?.has(PermissionFlagsBits.ManageMessages) && !isDeveloper(m.author.id)) {
+        return m.reply('Você precisa da permissão **Gerenciar Mensagens** para usar esse comando.').catch(() => {});
+      }
+      const arg = raw.split(/\s+/)[1];
+      let amount = arg === undefined ? 1 : Number.parseInt(arg, 10);
+      if (!Number.isInteger(amount) || amount < 1) return m.reply('Uso: `+limpar [quantidade]` — informe um número entre 1 e 10000.').catch(() => {});
+      amount = Math.min(amount, 10000);
+      await m.delete().catch(() => {});
+      let deleted = 0, cursor = undefined;
+      while (deleted < amount) {
+        const batch = await m.channel.messages.fetch({ limit: Math.min(100, amount - deleted), ...(cursor ? { before: cursor } : {}) }).catch(() => null);
+        if (!batch?.size) break;
+        cursor = batch.last()?.id;
+        const targets = [...batch.values()].filter(msg => msg.id !== m.id);
+        if (!targets.length) break;
+        const fresh = targets.filter(msg => Date.now() - msg.createdTimestamp < 14 * 24 * 60 * 60 * 1000);
+        const old = targets.filter(msg => Date.now() - msg.createdTimestamp >= 14 * 24 * 60 * 60 * 1000);
+        if (fresh.length) {
+          const res = await m.channel.bulkDelete(fresh, true).catch(async () => {
+            let count = 0;
+            for (const msg of fresh) if (await msg.delete().then(() => true).catch(() => false)) count++;
+            return { size: count };
+          });
+          deleted += res?.size || 0;
+        }
+        for (const msg of old) {
+          if (deleted >= amount) break;
+          if (await msg.delete().then(() => true).catch(() => false)) deleted++;
+        }
+        if (batch.size < Math.min(100, amount - deleted)) break;
+        await sleep(350);
+      }
+      return m.channel.send(`🧹 Limpeza concluída: **${deleted}** mensagem(ns) removida(s).`).then(msg => setTimeout(() => msg.delete().catch(() => {}), 5000)).catch(() => {});
+    }
+
+    if (lower === '.p' || lower.startsWith('.p ')) {
+      const mention = m.mentions.users.first();
+      const idMatch = raw.match(/\b(\d{15,25})\b/);
+      const target = mention || (idMatch ? await client.users.fetch(idMatch[1]).catch(() => null) : null) || m.author;
+      const { data: stats, error } = await supabase.from('ff_players').select('coins,wins,losses')
+        .eq('guild_id', m.guild.id).eq('user_id', target.id).maybeSingle();
+      if (error) console.warn('[PERFIL] Supabase:', error.message);
+      const e = new EmbedBuilder().setTitle(`📊 Perfil de ${target.username}`).setThumbnail(target.displayAvatarURL())
+        .setColor('#5865F2').addFields(
+          { name: '🏆 Vitórias', value: String(Number(stats?.wins || 0)), inline: true },
+          { name: '❌ Derrotas', value: String(Number(stats?.losses || 0)), inline: true },
+          { name: '🪙 Coins', value: String(Number(stats?.coins || 0)), inline: true },
+        ).setFooter({ text: `Solicitado por ${m.author.tag}` }).setTimestamp();
+      return m.channel.send({ embeds: [e] }).catch(() => {});
+    }
+
+    if (lower === '.roleta') return sendRoulettePanel(m.channel).catch(e => m.reply(`Não consegui enviar a roleta: ${e.message}`).catch(() => {}));
+
+    if (lower === '.med') {
+      if (!await isAdmin(m.author, m.guild).catch(() => false) && !isDeveloper(m.author.id)) return m.reply('Apenas staff pode publicar a fila de mediadores.').catch(() => {});
+      const panel = await ffBuildMediatorPanel(m.guild.id);
+      return m.channel.send(panel).catch(e => m.reply(`Falha ao enviar fila: ${e.message}`).catch(() => {}));
+    }
+
+    if (lower === '.medpix') {
+      if (!await isAdmin(m.author, m.guild).catch(() => false) && !isDeveloper(m.author.id)) return m.reply('Apenas staff pode publicar o painel PIX dos mediadores.').catch(() => {});
+      const panel = await ffBuildMediatorPixPanel(m.guild.id);
+      return m.channel.send(panel).catch(e => m.reply(`Falha ao enviar painel PIX: ${e.message}`).catch(() => {}));
+    }
+
+    if (lower.startsWith('.telmob') || lower.startsWith('.telemu')) {
+      const mobile = lower.startsWith('.telmob');
+      const detail = raw.split(/\s+/).slice(1).join(' ').trim();
+      const e = new EmbedBuilder().setTitle(mobile ? '📱 Solicitação de SS — Mobile' : '🖥️ Solicitação de SS — Emulador')
+        .setColor(mobile ? '#22C55E' : '#5865F2')
+        .setDescription(`${m.author} solicitou uma verificação por compartilhamento de tela (${mobile ? 'Mobile' : 'Emulador'}).${detail ? `\n\n**Detalhes:** ${detail.slice(0, 800)}` : ''}`)
+        .setTimestamp();
+      return m.channel.send({ embeds: [e], allowedMentions: { parse: [], users: [m.author.id], roles: [] } }).catch(() => {});
+    }
+
+    if (lower.startsWith('.gp ')) {
+      const parts = raw.split(/\s+/);
+      const pix = parts[1];
+      const amount = Number(String(parts[2] || '').replace(',', '.'));
+      if (!pix || !Number.isFinite(amount) || amount <= 0 || amount > 1000000) {
+        return m.reply('Uso: `.gp [pix] [valor]` — exemplo: `.gp chavepix 25,00`').catch(() => {});
+      }
+      const e = new EmbedBuilder().setTitle('💳 Solicitação de pagamento')
+        .setColor('#22C55E').setDescription(`**Solicitante:** ${m.author}\n**Valor:** R$ ${amount.toFixed(2)}\n**Chave PIX:**\n\`\`\`${pix.slice(0, 200)}\`\`\``)
+        .setFooter({ text: 'Confira os dados antes de realizar qualquer pagamento.' }).setTimestamp();
+      return m.channel.send({ embeds: [e], allowedMentions: { parse: [], users: [m.author.id], roles: [] } }).catch(() => {});
+    }
+  } catch (e) {
+    console.error('[PREFIX-COMMANDS]', e);
+    if (!m.deleted) await m.reply(`❌ Erro ao executar comando: ${String(e.message || e).slice(0, 300)}`).catch(() => {});
+  }
+});
+
+client.on('interactionCreate', async (i) => {
+  if (!i.isButton() || i.customId !== 'roulette:spin') return;
+  try {
+    if (!i.guild) return i.reply({ content: 'A roleta só funciona dentro de um servidor.', flags: EPHEMERAL });
+    const key = `${i.guild.id}:${i.user.id}`;
+    const last = rouletteCooldowns.get(key) || 0;
+    const wait = ROULETTE_COOLDOWN_MS - (Date.now() - last);
+    if (wait > 0) {
+      const mins = Math.ceil(wait / 60000);
+      return i.reply({ content: `Você já girou recentemente. Tente novamente em aproximadamente ${mins} minuto(s).`, flags: EPHEMERAL });
+    }
+    await i.deferReply({ flags: EPHEMERAL });
+    const reward = ROULETTE_REWARDS[Math.floor(Math.random() * ROULETTE_REWARDS.length)];
+    const { data: player, error } = await supabase.from('ff_players').select('coins')
+      .eq('guild_id', i.guild.id).eq('user_id', i.user.id).maybeSingle();
+    if (error) throw error;
+    if (player) {
+      const { error: updError } = await supabase.from('ff_players').update({ coins: Number(player.coins || 0) + reward })
+        .eq('guild_id', i.guild.id).eq('user_id', i.user.id);
+      if (updError) throw updError;
+    } else {
+      const { error: insError } = await supabase.from('ff_players').insert({
+        guild_id: i.guild.id, user_id: i.user.id, coins: reward, wins: 0, losses: 0,
+      });
+      if (insError) throw insError;
+    }
+    rouletteCooldowns.set(key, Date.now());
+    if (reward > 0) await logCoins(i.guild, i.user.id, reward, 'Prêmio da roleta', null).catch(() => {});
+    await i.editReply(reward > 0
+      ? `🎉 A roleta parou em **${reward} coins**! Seu prêmio foi adicionado ao saldo.`
+      : 'A roleta não trouxe coins desta vez. Você pode tentar novamente daqui a uma hora.');
+  } catch (e) {
+    console.error('[ROULETTE]', e);
+    if (i.deferred || i.replied) await i.editReply('Não consegui concluir o giro. Tente novamente mais tarde.').catch(() => {});
+    else await i.reply({ content: 'Não consegui concluir o giro. Tente novamente mais tarde.', flags: EPHEMERAL }).catch(() => {});
+  }
+});
+
+
 // ═══════════════════════════════════════════════════════════
 // HANDLER — .govdev / .VK (mesmo setup)
 // ═══════════════════════════════════════════════════════════
@@ -8404,7 +8772,6 @@ const onReady = async () => {
   console.log(`[READY] ✅ ${BOT_VERSION} pronto.`);
 };
 client.once('ready', onReady);
-client.once('clientReady', onReady);
 
 // .registrar — (dev) registra os slash commands de novo e mostra o resultado/erro
 client.on('messageCreate', async (m) => {

@@ -1,7 +1,7 @@
 {
   "name": "frio-apostas",
-  "version": "1.0.0",
-  "description": "Frio Apostas — Sistema enxuto de apostas FF + Tickets + Streamers",
+  "version": "1.4.0",
+  "description": "BACK BOT — Sistema de apostas FF com painel de automações",
   "main": "apostas.js",
   "engines": {
     "node": "22.x"
@@ -19,7 +19,12 @@
     "qrcode": "^1.5.3",
     "ws": "8.18.0"
   },
-  "keywords": ["discord", "bot", "free-fire", "apostas"],
+  "keywords": [
+    "discord",
+    "bot",
+    "free-fire",
+    "apostas"
+  ],
   "author": "FrioBot",
   "license": "MIT"
 }
