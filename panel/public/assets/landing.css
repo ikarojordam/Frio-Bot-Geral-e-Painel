@@ -4,6 +4,7 @@
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{min-height:100%}
+body{background-image:linear-gradient(rgba(3,6,20,.78),rgba(3,6,20,.90)),url("/assets/space-background.jpeg");background-size:cover;background-position:center;background-attachment:fixed;background-repeat:no-repeat}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:none;background:none}
 a{color:inherit;text-decoration:none}
@@ -494,3 +495,76 @@ body{background:radial-gradient(ellipse at 50% -20%,rgba(37,99,235,.16),transpar
 @media(max-width:640px){.nav-inner{padding:12px 15px}.nav-brand{font-size:15px}.nav-logo{width:31px;height:31px}.nav-actions{margin-left:auto}.nav-actions .btn-primary{padding:9px 11px;font-size:11px}.nav-burger{display:flex;align-items:center;justify-content:center}.hero{padding:48px 17px 58px;min-height:auto}.hero h1{font-size:clamp(37px,10vw,49px);line-height:1.04;letter-spacing:-.05em}.hero-sub{font-size:14px;line-height:1.75;margin-bottom:24px}.hero .pill{font-size:10.5px;margin-bottom:18px}.hero-cta{gap:10px;margin-bottom:23px}.hero-cta .btn{width:100%;padding:13px 16px}.hero-feats{display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px}.hero-feats li{align-items:flex-start}.hero-right{margin-top:4px}.mockup{border-radius:14px}.mockup-body{min-height:200px}.section{padding:65px 17px}.section-head{margin-bottom:28px}.section-head h2{font-size:29px;line-height:1.15}.section-head p{font-size:13px}.grid-feats{grid-template-columns:1fr;gap:11px}.feat{padding:20px;border-radius:15px;display:grid;grid-template-columns:40px minmax(0,1fr);column-gap:13px}.feat-icon{grid-row:span 2;margin:0;width:40px;height:40px}.feat h3{align-self:end;font-size:14px}.feat p{font-size:12px}.quick-strip{padding:0 17px}.quick-strip-inner{margin-top:-10px;border-radius:15px}.quick-strip-inner>div{padding:14px 10px;gap:9px}.quick-strip-inner>div>i{width:18px;height:18px}.quick-strip-inner b{font-size:11px}.quick-strip-inner small{font-size:9px;line-height:1.4}.tier-grid{grid-template-columns:1fr;gap:12px}.tier-card{padding:22px;border-radius:17px}.tier-desc{min-height:0;margin-bottom:18px}.tier-card ul{gap:10px}.tier-card li{font-size:12px}.tier-footnote{font-size:10.5px}.steps{grid-template-columns:1fr;gap:10px}.step{padding:20px 18px}.step-num{width:40px;height:40px;font-size:17px;margin-bottom:12px}.grid-benefits{grid-template-columns:1fr 1fr;gap:10px}.benefit{padding:20px 13px}.benefit h4{font-size:12px}.benefit p{font-size:11px}.faq-item{padding-inline:15px}.faq-item summary{font-size:12.5px;padding:16px 0}.faq-item p{font-size:12px;padding-right:2px}.cta-final{padding:60px 17px}.cta-box{padding:37px 18px;border-radius:18px}.cta-box h2{font-size:27px}.cta-box p{font-size:13px}.footer{padding:42px 19px 22px}.footer-inner{grid-template-columns:1fr 1fr;gap:26px 18px}.footer-brand{grid-column:1/-1}.footer-col h5{font-size:10px}.footer-col a{font-size:12px}.footer-bottom{font-size:10.5px;gap:7px}.nav-links{left:0;right:0;max-height:calc(100dvh - 68px);overflow:auto}}
 @media(max-width:380px){.nav-actions .btn-primary{display:none}.hero h1{font-size:35px}.hero-feats{grid-template-columns:1fr}.quick-strip-inner small{font-size:8px}.grid-benefits{grid-template-columns:1fr}.footer-inner{grid-template-columns:1fr 1fr}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+
+/* ═══ FRIO COSMIC UI — identidade visual global ═══ */
+html { background:#05060a; }
+body, body.auth-body, body.legal-body {
+  background-color:#05060a !important;
+  background-image: linear-gradient(180deg, rgba(4,5,14,.76), rgba(4,5,14,.90)), url("space-background.jpeg") !important;
+  background-position:center center !important;
+  background-size:cover !important;
+  background-repeat:no-repeat !important;
+  background-attachment:fixed !important;
+}
+body::before {
+  content:"";
+  position:fixed;
+  inset:0;
+  z-index:0;
+  pointer-events:none;
+  background:
+    radial-gradient(ellipse at 15% 0%, rgba(93,76,255,.17), transparent 42%),
+    radial-gradient(ellipse at 90% 35%, rgba(0,190,255,.10), transparent 38%);
+}
+body > * { position:relative; }
+body > .aurora { z-index:0; }
+body[data-plan="basic"] .plan-badge,
+body[data-plan="basic"] .tier-badge { border-color:rgba(148,163,184,.36); }
+body[data-plan="premium"] .plan-badge,
+body[data-plan="premium"] .tier-badge {
+  border-color:rgba(56,189,248,.6);
+  box-shadow:0 0 18px rgba(56,189,248,.14);
+}
+body[data-plan="ultra"] .plan-badge,
+body[data-plan="ultra"] .tier-badge {
+  border-color:rgba(167,139,250,.72);
+  box-shadow:0 0 22px rgba(139,92,246,.2);
+}
+body[data-plan="unlimited"] .plan-badge,
+body[data-plan="unlimited"] .tier-badge {
+  border-color:rgba(251,191,36,.78);
+  box-shadow:0 0 26px rgba(245,158,11,.22);
+}
+
+
+/* Home/dashboard: hierarchy, legibility and premium surface treatment */
+.dashboard-hero, .welcome-hero, .hero-panel, .page-hero {
+  background:linear-gradient(125deg,rgba(18,22,48,.92),rgba(9,13,29,.82)) !important;
+  border:1px solid rgba(151,164,255,.2) !important;
+  box-shadow:0 22px 60px rgba(0,0,0,.28), inset 0 1px rgba(255,255,255,.04);
+  backdrop-filter:blur(18px);
+}
+.card, .panel-card, .stat-card, .feature-card, .tier-card, .server-card {
+  backdrop-filter:blur(16px);
+  border-color:rgba(255,255,255,.10);
+  box-shadow:0 12px 36px rgba(0,0,0,.18);
+  transition:border-color .22s ease, transform .22s ease, box-shadow .22s ease;
+}
+.card:hover, .panel-card:hover, .stat-card:hover, .feature-card:hover, .tier-card:hover, .server-card:hover {
+  border-color:rgba(139,151,255,.34);
+  box-shadow:0 18px 44px rgba(0,0,0,.26);
+}
+
+/* Premium tiers: identidade progressiva, sem alterar permissões ou dados */
+.tier-basic, [data-tier="basic"] { --tier-accent:#94a3b8; }
+.tier-premium, [data-tier="premium"] { --tier-accent:#38bdf8; }
+.tier-ultra, [data-tier="ultra"] { --tier-accent:#a78bfa; }
+.tier-unlimited, [data-tier="unlimited"] { --tier-accent:#fbbf24; }
+.tier-basic, .tier-premium, .tier-ultra, .tier-unlimited,
+[data-tier="basic"], [data-tier="premium"], [data-tier="ultra"], [data-tier="unlimited"] {
+  border-color:color-mix(in srgb, var(--tier-accent) 38%, transparent);
+}
+.tier-premium:hover, [data-tier="premium"]:hover { box-shadow:0 0 28px rgba(56,189,248,.13); }
+.tier-ultra:hover, [data-tier="ultra"]:hover { box-shadow:0 0 30px rgba(167,139,250,.18); }
+.tier-unlimited:hover, [data-tier="unlimited"]:hover { box-shadow:0 0 34px rgba(251,191,36,.18); }

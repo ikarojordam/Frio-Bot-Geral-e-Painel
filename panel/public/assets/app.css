@@ -1903,3 +1903,76 @@ kbd{
   html{scroll-padding-top:72px} .topbar{padding-left:12px;padding-right:12px;gap:8px}.topbar-brand span{font-size:14px}.topbar-search{min-width:0;max-width:42px;padding:10px;justify-content:center}.topbar-search span,.topbar-search kbd{display:none}.topbar-actions{gap:5px}.user-chip{max-width:42px;padding:4px}.chip-info,.user-chip>i{display:none}.chip-avatar{width:30px;height:30px}.topbar-btn{width:34px;height:34px}.sidebar{max-width:min(86vw,300px);width:300px}.main-content,.content,.app-content{min-width:0;max-width:100%;overflow-x:hidden}.page-head{gap:10px;align-items:flex-start;flex-wrap:wrap}.page-head .btn-row,.page-head-actions{width:100%;flex-wrap:wrap}.page-head .btn-row .btn,.page-head-actions .btn{flex:1 1 auto}.stat-grid,.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stat-card{min-width:0;padding:13px}.stat-value{overflow-wrap:anywhere}.table-wrap,.table-container{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}.data-table,.table{min-width:600px}.modal{width:calc(100vw - 24px);max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto}.form-grid{grid-template-columns:1fr}.btn-row{flex-wrap:wrap}.btn-row .btn{max-width:100%}input,select,textarea{max-width:100%;min-width:0}canvas{max-width:100%}
 }
 @media(max-width:420px){.topbar-brand img{width:27px;height:27px}.topbar-brand span{display:none}.stat-grid,.stats-grid{grid-template-columns:1fr 1fr}.page-head h1,.page-head h2{font-size:17px}.btn{min-height:38px}.card,.panel-card{padding:13px}}
+
+
+/* ═══ FRIO COSMIC UI — identidade visual global ═══ */
+html { background:#05060a; }
+body, body.auth-body, body.legal-body {
+  background-color:#05060a !important;
+  background-image: linear-gradient(180deg, rgba(4,5,14,.76), rgba(4,5,14,.90)), url("space-background.jpeg") !important;
+  background-position:center center !important;
+  background-size:cover !important;
+  background-repeat:no-repeat !important;
+  background-attachment:fixed !important;
+}
+body::before {
+  content:"";
+  position:fixed;
+  inset:0;
+  z-index:0;
+  pointer-events:none;
+  background:
+    radial-gradient(ellipse at 15% 0%, rgba(93,76,255,.17), transparent 42%),
+    radial-gradient(ellipse at 90% 35%, rgba(0,190,255,.10), transparent 38%);
+}
+body > * { position:relative; }
+body > .aurora { z-index:0; }
+body[data-plan="basic"] .plan-badge,
+body[data-plan="basic"] .tier-badge { border-color:rgba(148,163,184,.36); }
+body[data-plan="premium"] .plan-badge,
+body[data-plan="premium"] .tier-badge {
+  border-color:rgba(56,189,248,.6);
+  box-shadow:0 0 18px rgba(56,189,248,.14);
+}
+body[data-plan="ultra"] .plan-badge,
+body[data-plan="ultra"] .tier-badge {
+  border-color:rgba(167,139,250,.72);
+  box-shadow:0 0 22px rgba(139,92,246,.2);
+}
+body[data-plan="unlimited"] .plan-badge,
+body[data-plan="unlimited"] .tier-badge {
+  border-color:rgba(251,191,36,.78);
+  box-shadow:0 0 26px rgba(245,158,11,.22);
+}
+
+
+/* Home/dashboard: hierarchy, legibility and premium surface treatment */
+.dashboard-hero, .welcome-hero, .hero-panel, .page-hero {
+  background:linear-gradient(125deg,rgba(18,22,48,.92),rgba(9,13,29,.82)) !important;
+  border:1px solid rgba(151,164,255,.2) !important;
+  box-shadow:0 22px 60px rgba(0,0,0,.28), inset 0 1px rgba(255,255,255,.04);
+  backdrop-filter:blur(18px);
+}
+.card, .panel-card, .stat-card, .feature-card, .tier-card, .server-card {
+  backdrop-filter:blur(16px);
+  border-color:rgba(255,255,255,.10);
+  box-shadow:0 12px 36px rgba(0,0,0,.18);
+  transition:border-color .22s ease, transform .22s ease, box-shadow .22s ease;
+}
+.card:hover, .panel-card:hover, .stat-card:hover, .feature-card:hover, .tier-card:hover, .server-card:hover {
+  border-color:rgba(139,151,255,.34);
+  box-shadow:0 18px 44px rgba(0,0,0,.26);
+}
+
+/* Premium tiers: identidade progressiva, sem alterar permissões ou dados */
+.tier-basic, [data-tier="basic"] { --tier-accent:#94a3b8; }
+.tier-premium, [data-tier="premium"] { --tier-accent:#38bdf8; }
+.tier-ultra, [data-tier="ultra"] { --tier-accent:#a78bfa; }
+.tier-unlimited, [data-tier="unlimited"] { --tier-accent:#fbbf24; }
+.tier-basic, .tier-premium, .tier-ultra, .tier-unlimited,
+[data-tier="basic"], [data-tier="premium"], [data-tier="ultra"], [data-tier="unlimited"] {
+  border-color:color-mix(in srgb, var(--tier-accent) 38%, transparent);
+}
+.tier-premium:hover, [data-tier="premium"]:hover { box-shadow:0 0 28px rgba(56,189,248,.13); }
+.tier-ultra:hover, [data-tier="ultra"]:hover { box-shadow:0 0 30px rgba(167,139,250,.18); }
+.tier-unlimited:hover, [data-tier="unlimited"]:hover { box-shadow:0 0 34px rgba(251,191,36,.18); }
