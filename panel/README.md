@@ -1,4 +1,4 @@
-# Frio Panel
+# Frio Painel
 
 Painel web profissional para gerenciamento do **Frio Bot** (Discord).
 Interface SaaS, autenticação por e-mail/senha, aprovação manual, multi-servidor e integração direta com o bot.
@@ -23,7 +23,7 @@ Interface SaaS, autenticação por e-mail/senha, aprovação manual, multi-servi
 
 ## Visão Geral
 
-O Frio Panel é o painel oficial do bot Discord **FrioBot**. Ele permite:
+O Frio Painel é o painel oficial do bot Discord **FrioBot**. Ele permite:
 
 - **Clientes** gerenciarem os próprios servidores (tickets, apostas, loja, streamers);
 - **Staff** administrar keys, planos, usuários e financeiro;
@@ -46,7 +46,7 @@ Página pública (`/`) explica o produto antes do login. Após autenticar, o usu
 
 ```bash
 # 1. Clone o projeto
-git clone https://github.com/seu-usuario/frio-panel.git
+git clone https://github.com/seu-usuario/frio-painel.git
 cd frio-panel
 
 # 2. Instale as dependências
@@ -75,7 +75,6 @@ SUPABASE_ANON_KEY=eyJhbGciOi...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...
 
 # Integração com o bot
-BOT_API_URL=https://frio-bot.onrender.com
 PANEL_API_TOKEN=<token de 32+ caracteres>
 
 # Discord (opcional, mas recomendado)
@@ -237,7 +236,7 @@ O **token compartilhado** (`PANEL_API_TOKEN`) garante que só o painel consiga c
 ### Testar a integração
 
 ```bash
-curl -H "Authorization: Bearer $PANEL_API_TOKEN" $BOT_API_URL/api/bot/health
+curl -H "Authorization: Bearer $PANEL_API_TOKEN" https://URL-DO-BOT/api/bot/health
 ```
 
 Resposta `{ "ok": true, ... }` = funcionando.
@@ -338,4 +337,4 @@ MIT — veja `LICENSE`.
 
 Esta versão reorganiza a página inicial com atalhos de recursos, apresentação dos tiers Basic/Premium/Ultra/Unlimited, FAQ e layout responsivo. A seção dedicada a segurança foi retirada da Home conforme solicitado. As telas autenticadas, endpoints e regras de autorização do backend foram mantidos sem alterações intencionais.
 
-**Deploy:** use a pasta `Panel` como raiz do serviço Node.js e `npm start` como comando de inicialização. Os arquivos web estão com extensões reais (`.html`, `.css` e `package.json`) para corresponder aos caminhos utilizados pelo Express. Configure as variáveis do ambiente conforme `.env.example`; não publique o arquivo `.env` com segredos.
+**Deploy:** use a pasta `Painel` como raiz do serviço Node.js e `npm start` como comando de inicialização. Os arquivos web estão com extensões reais (`.html`, `.css` e `package.json`) para corresponder aos caminhos utilizados pelo Express. Configure as variáveis do ambiente conforme `.env.example`; não publique o arquivo `.env` com segredos.

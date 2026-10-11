@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// FRIO PANEL — Backend v6.1.0
+// FRIO PAINEL — Backend v6.1.0
 // + Edição de perfil (cliente + dev)
 // + Isolamento de servidores por discord_id
 // ═══════════════════════════════════════════════════════════
@@ -20,7 +20,6 @@ const IS_PROD = NODE_ENV === 'production';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
-const BOT_API_URL = process.env.BOT_API_URL || 'https://frio-bot.onrender.com';
 const PANEL_API_TOKEN = process.env.PANEL_API_TOKEN;
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -119,7 +118,7 @@ app.use((req, res, next) => {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: https:",
-    "connect-src 'self' " + (BOT_API_URL || ''),
+    "connect-src 'self'",
     "media-src 'self' https:",
     "object-src 'none'",
     "frame-ancestors 'none'",
@@ -139,7 +138,7 @@ app.use(cookieParser());
 // STATIC — assets
 // ═══════════════════════════════════════════════════════════
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets'), {
-  maxAge: IS_PROD ? '7d' : 0,
+  maxAge: IS_PROD ? '30d' : 0,
   etag: true,
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
@@ -289,27 +288,7 @@ function isSensitiveAction(a) {
   ].includes(a);
 }
 async function notifyDevsRealtime(action, data) {
-  if (!PANEL_API_TOKEN || !BOT_API_URL) return;
-  try {
-    await fetch(`${BOT_API_URL}/api/bot/audit/log`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${PANEL_API_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        event_type: action, user_id: data.actor_id,
-        payload: sanitizeAuditPayload({ email: data.actor_email, role: data.target_role, reason: data.error_reason }),
-        context: {
-          ip: data.ip, user_agent: data.user_agent,
-          browser: data.browser, os: data.os,
-          country: data.country, city: data.city,
-          device_type: data.device_type,
-        },
-        timestamp: new Date().toISOString(),
-      }),
-    });
-  } catch {}
+  // O painel registra auditoria no Supabase; não depende de uma URL externa do bot.
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1071,11 +1050,8 @@ app.get('/api/dashboard/charts', requireStaff, async (req, res) => {
 
 app.get('/api/dashboard/bot-status', requireStaff, async (req, res) => {
   try {
-    let botStatus = null;
-    try {
-      const r = await fetch(`${BOT_API_URL}/health`, { signal: AbortSignal.timeout(5000) });
-      if (r.ok) botStatus = await r.json();
-    } catch { botStatus = { offline: true }; }
+    // O painel não consulta diretamente o processo do bot.
+    const botStatus = { configured: false, message: 'Status externo não configurado' };
 
     const [ks, mm] = await Promise.all([
       supaAdmin.from('kill_switch').select('active,reason').eq('id', 1).maybeSingle(),
@@ -2243,7 +2219,6 @@ process.on('uncaughtException', e => console.error('uncaughtException:', e?.mess
 app.listen(PORT, () => {
   console.log(`[PANEL v6.1.0] Rodando na porta ${PORT}`);
   console.log(`NODE_ENV=${NODE_ENV}`);
-  console.log(`Bot API: ${BOT_API_URL}`);
   console.log(`Painel URL: ${baseUrl()}`);
   console.log(`Rotas: / (landing) · /login · /register · /terms · /privacy · /app`);
   console.log(`Novos endpoints: PATCH /api/me/profile · PATCH /api/dev/usuarios/:id (com email) · GET /api/me/servers (isolado)`);
