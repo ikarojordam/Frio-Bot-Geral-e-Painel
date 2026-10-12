@@ -9,8 +9,8 @@
 <title>Painel — Frio Painel</title>
 <link rel="icon" type="image/png" sizes="64x64" href="/assets/favicon-64.png">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-<link rel="stylesheet" href="/assets/app.css?v=20261014">
-<link rel="stylesheet" href="/assets/theme.css?v=20261019">
+<link rel="stylesheet" href="/assets/app.css?v=20261020">
+<link rel="stylesheet" href="/assets/theme.css?v=20261020">
 <link rel="preconnect" href="https://unpkg.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js" defer></script>
@@ -295,6 +295,36 @@
               <p style="font-weight:600" id="accDiscordId">—</p>
             </div>
           </div>
+        </div>
+
+        <div class="card" id="preferencesCard">
+          <h3 class="flex-start gap-sm"><i data-lucide="sliders-horizontal" style="width:15px;height:15px;color:var(--primary)"></i><span data-i18n="preferences">Preferências</span></h3>
+          <p class="page-sub" style="margin-top:8px" data-i18n="preferences_desc">Personalize sua foto, idioma e aparência do painel.</p>
+          <div class="grid-2" style="margin-top:14px">
+            <div>
+              <label class="hint" for="avatarUpload" data-i18n="profile_photo">Foto do perfil</label>
+              <div class="btn-row" style="margin-top:8px;align-items:center">
+                <div class="chip-avatar" id="preferencesAvatar" style="width:48px;height:48px;overflow:hidden"><span>?</span></div>
+                <label class="btn btn-ghost btn-sm" for="avatarUpload" style="cursor:pointer"><i data-lucide="image-plus"></i><span data-i18n="change_photo">Trocar foto</span></label>
+                <input id="avatarUpload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+                <button class="btn btn-ghost btn-sm" id="removeAvatar" type="button" data-i18n="remove_photo">Remover</button>
+              </div>
+              <p class="hint" style="margin-top:6px" data-i18n="photo_hint">PNG, JPG, WEBP ou GIF; até 2 MB.</p>
+            </div>
+            <div>
+              <label class="hint" for="languageSelect" data-i18n="language">Idioma</label>
+              <select class="input" id="languageSelect" style="width:100%;margin-top:8px">
+                <option value="pt">Português</option><option value="en">English</option><option value="es">Español</option>
+              </select>
+            </div>
+            <div>
+              <label class="hint" for="themeSelect" data-i18n="appearance">Tema</label>
+              <select class="input" id="themeSelect" style="width:100%;margin-top:8px">
+                <option value="dark" data-i18n="dark">Escuro</option><option value="light" data-i18n="light">Claro</option>
+              </select>
+            </div>
+          </div>
+          <div id="preferencesMsg" class="msg" style="margin-top:12px"></div>
         </div>
 
         <div class="card">
@@ -848,7 +878,7 @@
 <!-- Toast -->
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-<script src="/assets/app.js?v=20261017" defer></script>
+<script src="/assets/app.js?v=20261020" defer></script>
 
 <footer class="frio-global-footer" aria-label="Contato e direitos autorais">
   <span class="frio-footer-brand">FRIO PAINEL</span>
