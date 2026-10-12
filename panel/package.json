@@ -1,6 +1,6 @@
 {
   "name": "frio-painel",
-  "version": "6.1.0",
+  "version": "6.2.0",
   "description": "Frio Painel — painel web de gerenciamento do Frio Bot para Discord",
   "main": "server.js",
   "private": true,
@@ -10,14 +10,14 @@
   "scripts": {
     "start": "node server.js",
     "dev": "NODE_ENV=development node server.js",
-    "check": "node --check server.js",
-    "test:routes": "node -e \"const r=require('./server.js'); console.log('booted')\" || true"
+    "check": "node --check server.js && node --check public/assets/app.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "cookie-parser": "^1.4.6",
     "dotenv": "^16.4.5",
-    "express": "^4.21.1"
+    "express": "^4.21.1",
+    "compression": "^1.7.4"
   },
   "keywords": [
     "discord",

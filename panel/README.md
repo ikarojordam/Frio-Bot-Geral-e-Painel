@@ -338,3 +338,21 @@ MIT — veja `LICENSE`.
 Esta versão reorganiza a página inicial com atalhos de recursos, apresentação dos tiers Basic/Premium/Ultra/Unlimited, FAQ e layout responsivo. A seção dedicada a segurança foi retirada da Home conforme solicitado. As telas autenticadas, endpoints e regras de autorização do backend foram mantidos sem alterações intencionais.
 
 **Deploy:** use a pasta `Painel` como raiz do serviço Node.js e `npm start` como comando de inicialização. Os arquivos web estão com extensões reais (`.html`, `.css` e `package.json`) para corresponder aos caminhos utilizados pelo Express. Configure as variáveis do ambiente conforme `.env.example`; não publique o arquivo `.env` com segredos.
+
+
+## Atualização 6.2.0 — correções e otimizações
+
+**Bugs corrigidos**
+- Sessão caía após ~1h (o token do Supabase expira, mas o cookie durava 7/30 dias). Agora há renovação automática (cookie `sb_refresh`).
+- Cookie CSRF expirava em 7 dias mesmo com "lembrar" (30 dias): depois disso nenhum botão de salvar funcionava.
+- "Encerrar sessão" não derrubava o outro dispositivo; agora derruba de verdade (logout, troca de senha, ban).
+- Status do bot sempre aparecia "offline" por incompatibilidade API × tela.
+- Cancelar o prompt de Force Premium aplicava premium **permanente**.
+- Rotas async sem tratamento deixavam a requisição pendurada; `signOut()` no cliente compartilhado podia deslogar outro usuário.
+- Soma de "membros totais" ficava errada com mais de 1000 servidores; `redeem-pack` podia gerar keys em duplicidade; keys para usuários eram enviadas mesmo já usadas.
+
+**Segurança**: senhas/keys com `crypto` (antes `Math.random`), busca sem injeção de filtro, senha temporária não vai mais em notificação, tokens de reset/confirmação não saem do servidor (lista/backup), CSV sem injeção de fórmula, limite de login também por e-mail, parâmetros de rota validados, dev não consegue se auto-bloquear.
+
+**Performance**: gzip (`npm install` instala `compression`), cache correto de estáticos (imagens 30d, CSS/JS por ETag), logo/fundo/ícones reduzidos (de ~1,7 MB para poucas dezenas de KB), cache de 15s na autenticação e 20-30s nas estatísticas, inserts em lote, scripts de terceiros não bloqueiam a tela no painel, polling de notificações pausa com a aba oculta, desligamento limpo no Render.
+
+**Deploy**: rode `npm install` (novo pacote `compression`). Sessões antigas pedirão novo login uma única vez.
