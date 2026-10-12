@@ -32,7 +32,7 @@ const { createClient } = require('@supabase/supabase-js');
 const QRCode = require('qrcode');
 
 // ═══ VERSÃO ═══
-const BOT_VERSION = 'v1.4.0';
+const BOT_VERSION = 'v1.4.1';
 
 // ═══ MARCA ═══
 const ORG_NAME  = 'BACK E-ESPORTES';
@@ -9520,6 +9520,79 @@ client.on('shardResume', (id, r) => console.log('✅ [RESUME]', id, r));
 
 // ═══ SISTEMA ANTI-RAID CONFIGURÁVEL ═══
 require('./anti-raid-system')(client, { logChannelId: LOG_CHANNEL_ID });
+
+// ═══════════════════════════════════════════════════════════
+// .apostas — PAINEL DE STATUS E ESTATÍSTICAS DO BOT
+// ═══════════════════════════════════════════════════════════
+function formatDuration(totalSeconds) {
+  const s = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return [d ? `${d}d` : '', h ? `${h}h` : '', m ? `${m}m` : '', `${sec}s`].filter(Boolean).join(' ');
+}
+
+async function measureMonitorPing() {
+  const monitorUrl = String(process.env.MONITOR_URL || '').trim();
+  if (!monitorUrl) return '⚪ Não configurado';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
+  const start = Date.now();
+  try {
+    const response = await fetch(monitorUrl, { method: 'GET', signal: controller.signal });
+    return `${response.ok ? '🟢' : '🟠'} ${Date.now() - start} ms (${response.status})`;
+  } catch (e) {
+    return e.name === 'AbortError' ? '🔴 Timeout (> 4 s)' : '🔴 Indisponível';
+  } finally { clearTimeout(timer); }
+}
+
+client.on('messageCreate', async (m) => {
+  if (!m.guild || m.author.bot || String(m.content || '').trim().toLowerCase() !== '.apostas') return;
+  const started = Date.now();
+  const guild = m.guild;
+  try {
+    await m.channel.sendTyping().catch(() => {});
+    const [medWaiting, medBusy, anaWaiting, anaBusy, ticketsOpen, ticketsClosed, streamerWaiting, streamerActive, matchesTotal, monitorPing] = await Promise.all([
+      supabase.from('ff_mediator_queue').select('id', { count: 'exact', head: true }).eq('guild_id', guild.id).eq('status', 'waiting'),
+      supabase.from('ff_mediator_queue').select('id', { count: 'exact', head: true }).eq('guild_id', guild.id).eq('status', 'busy'),
+      supabase.from('ff_analyst_queue').select('id', { count: 'exact', head: true }).eq('guild_id', guild.id).eq('status', 'waiting'),
+      supabase.from('ff_analyst_queue').select('id', { count: 'exact', head: true }).eq('guild_id', guild.id).eq('status', 'busy'),
+      supabase.from('ticket_data').select('id', { count: 'exact', head: true }).eq('guild_id', guild.id).is('closed_at', null),
+      supabase.from('ticket_data').select('id', { count: 'exact', head: true }).eq('guild_id', guild.id).not('closed_at', 'is', null),
+      supabase.from('streamer_queue').select('id', { count: 'exact', head: true }).eq('guild_id', guild.id).eq('status', 'waiting'),
+      supabase.from('streamer_queue').select('id', { count: 'exact', head: true }).eq('guild_id', guild.id).eq('status', 'in_thread'),
+      supabase.from('ff_matches').select('id', { count: 'exact', head: true }).eq('guild_id', guild.id),
+      measureMonitorPing(),
+    ]);
+    const count = (r) => r && !r.error ? (r.count || 0) : null;
+    const fmt = (v) => v === null ? 'N/D' : String(v);
+    const queueWaiting = (count(medWaiting) || 0) + (count(anaWaiting) || 0) + (count(streamerWaiting) || 0);
+    const queueBusy = (count(medBusy) || 0) + (count(anaBusy) || 0) + (count(streamerActive) || 0);
+    const totalChannels = guild.channels.cache.size;
+    const textChannels = guild.channels.cache.filter(c => c.isTextBased?.()).size;
+    const voiceChannels = guild.channels.cache.filter(c => c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice).size;
+    const memory = process.memoryUsage();
+    const wsPing = Number.isFinite(client.ws.ping) && client.ws.ping >= 0 ? `${client.ws.ping} ms` : 'Reconectando';
+    const e = new EmbedBuilder()
+      .setColor(client.isReady() ? '#2ECC71' : '#E74C3C')
+      .setTitle('📊 Central de Estatísticas • BACK BOT')
+      .setDescription(`Resumo atual do bot e do servidor **${escapeMarkdown(guild.name)}**.`)
+      .addFields(
+        { name: '🤖 Bot', value: `Status: ${client.isReady() ? '🟢 Online' : '🔴 Offline'}\nVersão: \`${BOT_VERSION}\`\nUptime: \`${formatDuration(process.uptime())}\`\nServidores atendidos: \`${client.guilds.cache.size}\``, inline: true },
+        { name: '📡 Conexão', value: `Ping Discord: \`${wsPing}\`\nPing do comando: \`${Date.now() - started} ms\`\nPing do monitor: ${monitorPing}\nWebSocket: \`${client.ws.status}\``, inline: true },
+        { name: '🖥️ Servidor', value: `Membros: \`${guild.memberCount ?? 'N/D'}\`\nCanais: \`${totalChannels}\`\nTexto: \`${textChannels}\` • Voz: \`${voiceChannels}\`\nCargos: \`${guild.roles.cache.size}\``, inline: true },
+        { name: '⏳ Filas', value: `Mediadores esperando: \`${fmt(count(medWaiting))}\`\nMediadores ocupados: \`${fmt(count(medBusy))}\`\nAnalistas esperando: \`${fmt(count(anaWaiting))}\`\nAnalistas ocupados: \`${fmt(count(anaBusy))}\`\nStreamers esperando: \`${fmt(count(streamerWaiting))}\`\nEm atendimento de streamer: \`${fmt(count(streamerActive))}\`\n**Total esperando:** \`${queueWaiting}\` • **Em atendimento:** \`${queueBusy}\``, inline: false },
+        { name: '🎟️ Tickets', value: `Abertos: \`${fmt(count(ticketsOpen))}\`\nFechados: \`${fmt(count(ticketsClosed))}\`\nTotal registrado: \`${count(ticketsOpen) === null || count(ticketsClosed) === null ? 'N/D' : count(ticketsOpen) + count(ticketsClosed)}\``, inline: true },
+        { name: '🎮 Partidas', value: `Partidas registradas: \`${fmt(count(matchesTotal))}\``, inline: true },
+        { name: '🧠 Recursos', value: `RAM usada: \`${(memory.rss / 1024 / 1024).toFixed(1)} MB\`\nHeap: \`${(memory.heapUsed / 1024 / 1024).toFixed(1)} / ${(memory.heapTotal / 1024 / 1024).toFixed(1)} MB\`\nPlataforma: \`${process.platform} • Node ${process.version}\``, inline: true },
+      )
+      .setFooter({ text: 'BACK BOT • Atualizado em tempo real' })
+      .setTimestamp();
+    await m.reply({ embeds: [e], allowedMentions: { repliedUser: false } });
+  } catch (err) {
+    console.error('[APOSTAS-STATUS]', err?.stack || err);
+    await m.reply('❌ Não consegui carregar todas as estatísticas agora. Confira a conexão com o banco de dados e tente novamente.').catch(() => {});
+  }
+});
 
 // ═══════════════════════════════════════════════════════════
 // LOGIN

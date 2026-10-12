@@ -1,4 +1,4 @@
-# BACK BOT — v1.4.0
+# BACK BOT — v1.4.1
 
 ## Atualização
 1. Faça backup do projeto e do banco antes de publicar.
@@ -6,6 +6,12 @@
 3. No Supabase, abra **SQL Editor** e execute `MIGRACAO_AUTO_MENSAGENS.sql`. O SQL é idempotente e inclui `last_message_id` para substituir a mensagem anterior da automação.
 4. Publique/reinicie o bot.
 5. Teste primeiro em um canal de desenvolvimento.
+
+## Novo comando `.apostas`
+
+Digite `.apostas` em um canal do servidor para mostrar um painel com status do bot, uptime, ping do Discord, latência do comando, dados do servidor, uso de memória, filas de mediadores/analistas/streamers, tickets abertos/fechados e partidas registradas.
+
+Opcionalmente, configure `MONITOR_URL` no ambiente do bot com a URL HTTP/HTTPS do endpoint que deseja testar. O painel mostrará o tempo de resposta dessa URL; sem a variável, exibirá “Não configurado”. Isso mede a resposta HTTP do endpoint, não lê métricas internas de um serviço externo de monitoramento.
 
 ## Tickets
 Em `/config ticket`, edite o painel e entre em **Tipos**. Ao criar ou editar um tipo, preencha **ID do canal para o tópico** para usar um canal dedicado. Se deixar vazio, o bot usa o canal configurado para o tipo/painel, com fallback para o canal em que o painel foi aberto. O bot precisa de `Criar Tópicos Privados` e `Gerenciar Tópicos` no canal de texto escolhido.

@@ -26,3 +26,8 @@ Esse aviso não revoga licenças de terceiros já aplicáveis, não garante por 
 
 ## v1.6.0
 - Adicionado sistema Anti-Raid configuravel por servidor, com modulos, limites, acoes, whitelist e logs.
+
+
+## v1.4.1
+- Adicionado comando `.apostas` com painel de status, ping do Discord e do comando, uptime, memória, estatísticas do servidor, filas, tickets e partidas.
+- Adicionada verificação opcional de latência HTTP por `MONITOR_URL`.
