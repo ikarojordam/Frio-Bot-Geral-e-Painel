@@ -2280,3 +2280,91 @@ if (window.location.hostname !== 'localhost' && window.location.hostname !== '12
   console.debug = () => {};
   console.info = () => {};
 }
+
+
+// Preferências do usuário: idioma, tema e foto de perfil.
+(function initUserPreferences(){
+  const $id = (id) => document.getElementById(id);
+  const dictionaries = {
+    en: {
+      'Geral':'General','Dashboard':'Dashboard','Meus Servidores':'My Servers','Minhas Keys':'My Keys','Notificações':'Notifications','Conta & Sessões':'Account & Sessions',
+      'Operacional':'Operations','Keys':'Keys','Packs':'Packs','Tickets Global':'Global Tickets','Financeiro':'Finance','Servidores (DEV)':'Servers (DEV)','Gerenciar Servidores':'Manage Servers','Buscar Servidor':'Find Server','DEV TOOLS':'DEV TOOLS',
+      'Dados da conta':'Account details','Editar perfil':'Edit profile','Função':'Role','Plano':'Plan','ID do Discord':'Discord ID','Segurança':'Security','Alterar senha':'Change password','Encerrar todas as sessões':'Sign out all sessions',
+      'Preferências':'Preferences','Personalize sua foto, idioma e aparência do painel.':'Customize your profile photo, language, and dashboard appearance.',
+      'Foto do perfil':'Profile photo','Trocar foto':'Change photo','Remover':'Remove','PNG, JPG, WEBP ou GIF; até 2 MB.':'PNG, JPG, WEBP, or GIF; up to 2 MB.','Idioma':'Language','Tema':'Theme','Escuro':'Dark','Claro':'Light',
+      'E-mail':'Email','Dashboard':'Dashboard','Minha conta':'My account','Sair':'Sign out'
+    },
+    es: {
+      'Geral':'General','Dashboard':'Panel','Meus Servidores':'Mis servidores','Minhas Keys':'Mis claves','Notificações':'Notificaciones','Conta & Sessões':'Cuenta y sesiones',
+      'Operacional':'Operaciones','Keys':'Claves','Packs':'Paquetes','Tickets Global':'Tickets globales','Financeiro':'Finanzas','Servidores (DEV)':'Servidores (DEV)','Gerenciar Servidores':'Administrar servidores','Buscar Servidor':'Buscar servidor','DEV TOOLS':'HERRAMIENTAS DEV',
+      'Dados da conta':'Datos de la cuenta','Editar perfil':'Editar perfil','Função':'Rol','Plano':'Plan','ID do Discord':'ID de Discord','Segurança':'Seguridad','Alterar senha':'Cambiar contraseña','Encerrar todas as sessões':'Cerrar todas las sesiones',
+      'Preferências':'Preferencias','Personalize sua foto, idioma e aparência do painel.':'Personaliza tu foto, idioma y apariencia del panel.',
+      'Foto do perfil':'Foto de perfil','Trocar foto':'Cambiar foto','Remover':'Eliminar','PNG, JPG, WEBP ou GIF; até 2 MB.':'PNG, JPG, WEBP o GIF; hasta 2 MB.','Idioma':'Idioma','Tema':'Tema','Escuro':'Oscuro','Claro':'Claro',
+      'E-mail':'Correo electrónico','Minha conta':'Mi cuenta','Sair':'Salir'
+    }
+  };
+  function prefGet(key, fallback=''){ try { return localStorage.getItem('frio_pref_'+key) || fallback; } catch { return fallback; } }
+  function prefSet(key, value){ try { localStorage.setItem('frio_pref_'+key, value); } catch {} }
+  function applyLanguage(lang){
+    const dict=dictionaries[lang]||{};
+    document.documentElement.lang=lang==='en'?'en':lang==='es'?'es':'pt-BR';
+    document.querySelectorAll('[data-i18n]').forEach(el=>{
+      const key=el.dataset.i18n;
+      const source=({preferences:'Preferências',preferences_desc:'Personalize sua foto, idioma e aparência do painel.',profile_photo:'Foto do perfil',change_photo:'Trocar foto',remove_photo:'Remover',photo_hint:'PNG, JPG, WEBP ou GIF; até 2 MB.',language:'Idioma',appearance:'Tema',dark:'Escuro',light:'Claro'})[key];
+      if(source) el.textContent=dict[source]||source;
+    });
+    if(lang!=='pt'){
+      const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+      const nodes=[]; while(walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach(node=>{
+        if(!node.nodeValue.trim() || node.parentElement?.closest('script,style,option,[data-no-translate]')) return;
+        const raw=node.nodeValue, trimmed=raw.trim();
+        if(dict[trimmed]) node.nodeValue=raw.replace(trimmed,dict[trimmed]);
+      });
+      document.querySelectorAll('#languageSelect option').forEach((o)=>{ if(o.value==='pt')o.textContent='Português'; if(o.value==='en')o.textContent='English'; if(o.value==='es')o.textContent='Español'; });
+    }
+  }
+  function applyTheme(theme){
+    document.documentElement.dataset.theme=theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',theme==='light'?'#f4f7fb':'#0a0f18');
+  }
+  function applyAvatar(data){
+    ['chipAvatar','preferencesAvatar','sideAvatar'].forEach(id=>{
+      const el=$id(id); if(!el)return;
+      if(data){el.innerHTML=`<img src="${data}" alt="Foto do perfil" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">`;}
+      else if(id==='chipAvatar'||id==='sideAvatar'){
+        const initial=($id('chipInitials')?.textContent||'?').trim();
+        el.innerHTML=`<span>${initial}</span>`;
+      } else el.innerHTML='<span>?</span>';
+    });
+  }
+  const langSelect=$id('languageSelect'), themeSelect=$id('themeSelect'), avatarInput=$id('avatarUpload');
+  const lang=prefGet('language','pt'), theme=prefGet('theme','dark'), avatar=prefGet('avatar','');
+  if(langSelect)langSelect.value=lang;
+  if(themeSelect)themeSelect.value=theme;
+  applyLanguage(lang); applyTheme(theme); applyAvatar(avatar);
+  langSelect?.addEventListener('change',()=>{prefSet('language',langSelect.value);applyLanguage(langSelect.value);});
+  themeSelect?.addEventListener('change',()=>{prefSet('theme',themeSelect.value);applyTheme(themeSelect.value);});
+  avatarInput?.addEventListener('change',()=>{
+    const file=avatarInput.files?.[0]; if(!file)return;
+    const msg=$id('preferencesMsg');
+    if(file.size>2*1024*1024){if(msg)msg.textContent='A imagem deve ter no máximo 2 MB.';avatarInput.value='';return;}
+    if(!/^image\/(png|jpeg|webp|gif)$/.test(file.type)){if(msg)msg.textContent='Formato de imagem não suportado.';return;}
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        const canvas=document.createElement('canvas'), max=256, scale=Math.min(1,max/Math.max(img.width,img.height));
+        canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        const data=canvas.toDataURL('image/jpeg',.82);
+        try{prefSet('avatar',data);applyAvatar(data);if(msg)msg.textContent='Foto atualizada.';}
+        catch{if(msg)msg.textContent='Não foi possível salvar a foto neste navegador.';}
+      }; img.src=reader.result;
+    }; reader.readAsDataURL(file);
+  });
+  $id('removeAvatar')?.addEventListener('click',()=>{try{localStorage.removeItem('frio_pref_avatar')}catch{}applyAvatar('');if($id('preferencesMsg'))$id('preferencesMsg').textContent='Foto removida.';});
+  // Recupera a gaveta mobile caso uma interação anterior tenha deixado o painel bloqueado.
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){ $id('sidebar')?.classList.remove('open');$id('sidebarOverlay')?.classList.remove('active');if(!document.querySelector('.modal.active')&&!document.querySelector('.drawer.active'))document.body.classList.remove('no-scroll');}});
+  $id('sidebarOverlay')?.addEventListener('click',()=>{ $id('sidebar')?.classList.remove('open');$id('sidebarOverlay')?.classList.remove('active');document.body.classList.remove('no-scroll');});
+})();

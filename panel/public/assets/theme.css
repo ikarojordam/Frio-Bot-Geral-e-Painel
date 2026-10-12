@@ -501,3 +501,33 @@ tbody tr{transition:background .12s ease}
 tbody tr:hover{background:rgba(59,158,255,.06) !important}
 .frio-global-footer a:hover{color:var(--ice) !important}
 ::selection{background:rgba(59,158,255,.35);color:#fff}
+
+
+/* Tema claro selecionável nas preferências da conta */
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f3f6fb; --bg-1:#f3f6fb; --bg-2:#eaf0f8; --bg-3:#e1e9f4; --bg-4:#d5e0ef;
+  --surface:rgba(255,255,255,.94); --surface-2:rgba(255,255,255,.88); --surface-3:rgba(235,241,249,.92);
+  --glass:rgba(255,255,255,.94); --glass-2:rgba(245,248,252,.96);
+  --border:rgba(34,55,85,.12); --border-2:rgba(34,55,85,.19); --border-strong:rgba(34,55,85,.28);
+  --glass-border:rgba(34,55,85,.13); --glass-border-2:rgba(34,55,85,.2);
+  --txt-1:#142033; --txt-2:#33445d; --txt-3:#596b84; --txt-4:#73839a; --txt-5:#8b9ab0;
+  --panel:#fff; --panel-line:rgba(34,55,85,.14);
+}
+:root[data-theme="light"] body{background:var(--bg);color:var(--txt-1)}
+:root[data-theme="light"] .topbar,
+:root[data-theme="light"] .sidebar,
+:root[data-theme="light"] .card,
+:root[data-theme="light"] .modal-box,
+:root[data-theme="light"] .drawer,
+:root[data-theme="light"] .boot-card{
+  background-color:rgba(255,255,255,.96);color:var(--txt-1);
+}
+:root[data-theme="light"] .sidebar{background:rgba(248,250,253,.98)}
+:root[data-theme="light"] input,
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea{background:#fff;color:#142033;border-color:var(--border-2)}
+:root[data-theme="light"] .nav-link{color:#465872}
+:root[data-theme="light"] .nav-link.active{color:#fff}
+:root[data-theme="light"] .topbar-btn,
+:root[data-theme="light"] .user-chip{background:#fff;color:#26364d;border-color:var(--border-2)}
