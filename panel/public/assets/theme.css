@@ -153,7 +153,7 @@ footer,.footer{border-top:1px solid var(--border)}
 html { background:#05060a; }
 body, body.auth-body, body.legal-body {
   background-color:#05060a !important;
-  background-image: linear-gradient(180deg, rgba(4,5,14,.76), rgba(4,5,14,.90)), url("space-background.jpeg") !important;
+  background-image: linear-gradient(180deg, rgba(4,5,14,.76), rgba(4,5,14,.90)), linear-gradient(transparent,transparent) !important;
   background-position:center center !important;
   background-size:cover !important;
   background-repeat:no-repeat !important;
@@ -237,7 +237,7 @@ html, body { min-height:100%; background-color:#040711 !important; }
 body {
   background-image:
     linear-gradient(180deg, rgba(3,7,18,.34), rgba(3,7,18,.56)),
-    url("/assets/space-background.jpeg") !important;
+    linear-gradient(transparent,transparent) !important;
   background-position:center center !important;
   background-size:cover !important;
   background-repeat:no-repeat !important;
@@ -258,7 +258,7 @@ body > * { position:relative; }
 /* Fundo cósmico responsivo: mesma arte, enquadramento adaptado por dispositivo. */
 html, body { min-height:100%; background-color:#040711 !important; }
 body {
-  background-image: linear-gradient(180deg, rgba(3,7,18,.28), rgba(3,7,18,.52)), url("/assets/space-background.jpeg") !important;
+  background-image: linear-gradient(180deg, rgba(3,7,18,.28), rgba(3,7,18,.52)), linear-gradient(transparent,transparent) !important;
   background-position:center center !important; background-repeat:no-repeat !important;
   background-size:cover !important; background-attachment:fixed !important;
 }
@@ -276,3 +276,228 @@ img { height:auto; }
 
 /* Perf iOS/Safari: fundo fixo causa repintura e engasgos ao rolar; em telas pequenas fica rolando junto. */
 @media (max-width: 1024px) { body { background-attachment: scroll !important; } }
+
+
+/* ═══ v6.2.1 — Fundo 100% CSS (sem imagem) e correção do travamento/"problema ocorreu repetidamente" no iPhone ═══
+   Causa do erro: dezenas de camadas com backdrop-filter + 3 orbes com blur(120px) animados + fundo fixo.
+   O Safari do iOS estoura a memória gráfica e derruba a página. Aqui tudo isso vira gradiente estático. */
+html{background:#040711 !important}
+body, body.auth-body, body.legal-body{
+  background-color:#040711 !important;
+  background-image:
+    radial-gradient(1100px 650px at 10% -8%, rgba(99,102,241,.24), transparent 62%),
+    radial-gradient(900px 620px at 98% 28%, rgba(14,165,233,.17), transparent 62%),
+    radial-gradient(900px 700px at 40% 108%, rgba(34,211,238,.11), transparent 62%),
+    linear-gradient(180deg,#050a16 0%,#040711 100%) !important;
+  background-repeat:no-repeat !important;
+  background-size:auto !important;
+  background-position:0 0 !important;
+  background-attachment:scroll !important;
+}
+/* estrelas feitas só de CSS (camada fixa estática, sem animação e sem blur) */
+body::before{
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, rgba(255,255,255,.75), transparent 100%),
+    radial-gradient(1px 1px at 78% 12%, rgba(255,255,255,.60), transparent 100%),
+    radial-gradient(1.5px 1.5px at 34% 62%, rgba(186,230,253,.70), transparent 100%),
+    radial-gradient(1px 1px at 88% 70%, rgba(255,255,255,.55), transparent 100%),
+    radial-gradient(1px 1px at 55% 35%, rgba(255,255,255,.50), transparent 100%),
+    radial-gradient(1.5px 1.5px at 22% 88%, rgba(196,181,253,.65), transparent 100%) !important;
+  background-size:420px 420px !important;
+  opacity:.55;
+}
+/* sem orbes animados com blur gigante */
+.aurora{display:none !important}
+/* sem backdrop-filter em lugar nenhum (principal causa do crash no iOS); superfícies ficam mais opacas */
+*,*::before,*::after{backdrop-filter:none !important;-webkit-backdrop-filter:none !important}
+.topbar{background:rgba(6,11,20,.97) !important}
+.sidebar{background:linear-gradient(180deg,#08111e,#060b14) !important}
+.sidebar-overlay{background:rgba(2,6,12,.72) !important;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.modal,.cmdk{background:rgba(2,6,12,.80) !important}
+
+/* ═══ v6.2.2 — Visual sóbrio e profissional ═══
+   Menos "neon/futurista": paleta neutra, um único destaque azul discreto, sem brilho, sem textos em degradê,
+   sem animações decorativas, fonte do sistema (SF no iPhone, Segoe no Windows). */
+:root{
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --font-display:var(--font);
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+
+  --bg:#0d1016; --bg-1:#0d1016; --bg-2:#12161d; --bg-3:#171c25; --bg-4:#1d232e;
+  --surface:#12161d; --surface-2:#171c25; --surface-3:#1d232e;
+  --glass:#12161d; --glass-2:#171c25;
+  --border:rgba(255,255,255,.08); --border-2:rgba(255,255,255,.12); --border-strong:rgba(255,255,255,.20);
+  --glass-border:rgba(255,255,255,.08); --glass-border-2:rgba(255,255,255,.12);
+  --txt-1:#f3f4f6; --txt-2:#d1d5db; --txt-3:#9ca3af; --txt-4:#6b7280; --txt-5:#4b5563;
+
+  --primary:#3b82f6; --primary-2:#2563eb; --primary-glow:transparent;
+  --ice:#93c5fd; --ice-2:#60a5fa; --panel:#12161d; --panel-line:rgba(255,255,255,.10);
+
+  --radius-xs:4px; --radius-sm:6px; --radius:8px; --radius-lg:10px; --radius-xl:12px;
+  --shadow-sm:none; --shadow:0 1px 2px rgba(0,0,0,.35); --shadow-lg:0 8px 24px rgba(0,0,0,.45); --shadow-glow:none;
+}
+body[data-plan]{--primary:#3b82f6;--primary-2:#2563eb;--primary-glow:transparent}
+
+html{background:#0d1016 !important}
+body,body.auth-body,body.legal-body{background:#0d1016 !important;color:var(--txt-2)}
+body::before,body::after{display:none !important}
+.aurora,.orb{display:none !important}
+
+/* tipografia contida */
+h1,h2,h3,h4,.page-head h1,.stat-value,.auth-card h2,.legal-head h1,.hero h1,.nav-brand,.topbar-brand,.auth-top-brand,.legal-top-brand{
+  font-family:var(--font) !important;letter-spacing:-.01em !important;font-weight:650 !important;
+}
+.grad,.hero h1 .grad,.auth-aside h2 .grad{
+  background:none !important;-webkit-background-clip:border-box !important;background-clip:border-box !important;
+  -webkit-text-fill-color:currentColor !important;color:inherit !important;
+}
+
+/* sem brilho, sem sombras decorativas, sem "pulinho" no hover */
+*,*::before,*::after{text-shadow:none !important}
+.card,.panel-card,.stat-card,.feature-card,.tier-card,.server-card,.dashboard-hero,.welcome-hero,.hero-panel,.page-hero,
+.auth-card,.modal-card,.drawer,.toast{
+  background:var(--surface) !important;border:1px solid var(--border) !important;box-shadow:none !important;
+}
+.card:hover,.panel-card:hover,.stat-card:hover,.feature-card:hover,.tier-card:hover,.server-card:hover,
+.tier-premium:hover,.tier-ultra:hover,.tier-unlimited:hover,[data-tier]:hover{
+  transform:none !important;box-shadow:none !important;border-color:var(--border-strong) !important;
+}
+.tier-basic,.tier-premium,.tier-ultra,.tier-unlimited,[data-tier]{border-color:var(--border) !important}
+
+/* botões sólidos */
+.btn{border-radius:8px !important;font-weight:600 !important;box-shadow:none !important;transform:none !important;text-shadow:none !important}
+.btn-primary,.btn-primary:hover:not(:disabled){
+  background:var(--primary) !important;color:#fff !important;border:1px solid transparent !important;box-shadow:none !important;transform:none !important;
+}
+.btn-primary:hover:not(:disabled){background:var(--primary-2) !important}
+.btn-ghost,.btn-outline{background:transparent !important;border:1px solid var(--border-2) !important;color:var(--txt-2) !important;box-shadow:none !important}
+.btn-ghost:hover,.btn-outline:hover{background:rgba(255,255,255,.05) !important}
+
+/* campos */
+input,select,textarea{background:#0d1016 !important;border:1px solid var(--border-2) !important;border-radius:8px !important;box-shadow:none !important}
+input:focus,select:focus,textarea:focus{border-color:var(--primary) !important;box-shadow:0 0 0 3px rgba(59,130,246,.18) !important;outline:none}
+:where(a,button,input,select,textarea,[tabindex]):focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+
+/* barra superior, menu lateral e navegação: sólidos e discretos */
+.topbar,.nav,.legal-top,.auth-top{background:#0d1016 !important;border-bottom:1px solid var(--border) !important}
+.sidebar{background:#0d1016 !important;border-right:1px solid var(--border) !important}
+.nav-link{border-radius:6px !important}
+.nav-link:hover{background:rgba(255,255,255,.05) !important}
+.nav-link.active{background:rgba(59,130,246,.12) !important;color:#fff !important;box-shadow:none !important}
+
+/* ícones de estatística e etiquetas: neutros (cor só onde há significado: ok/erro/aviso) */
+.stat-icon,.stat-icon.blue,.stat-icon.green,.stat-icon.amber,.stat-icon.purple,.stat-icon.red{
+  background:rgba(255,255,255,.05) !important;color:var(--txt-3) !important;border-radius:8px !important;
+}
+.pill,.auth-pill,.badge-dev,.tag-info,.tag-gold,.tag-neutral{
+  background:rgba(255,255,255,.05) !important;color:var(--txt-3) !important;border:1px solid var(--border) !important;box-shadow:none !important;
+}
+.tag{border-radius:4px !important}
+.badge-dot,.status-dot.pulse{animation:none !important;box-shadow:none !important}
+
+/* rodapé e rolagem */
+.frio-global-footer{background:transparent !important;border-top:1px solid var(--border) !important}
+.frio-global-footer a:hover{color:#fff !important;text-shadow:none !important}
+::selection{background:rgba(59,130,246,.35);color:#fff}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14)}
+
+/* ═══ v6.2.3 — Profissional com personalidade ═══
+   Base escura com leve tom azul, destaque azul vivo usado com critério, profundidade sutil (relevo, não brilho),
+   estados de hover/ativo claros. Tudo estático e barato: sem blur, sem animação pesada (seguro no iPhone). */
+:root{
+  --bg:#0a0f18; --bg-1:#0a0f18; --bg-2:#0f1622; --bg-3:#141c2b; --bg-4:#1a2335;
+  --surface:#0f1622; --surface-2:#141c2b; --surface-3:#1a2335;
+  --glass:#0f1622; --glass-2:#141c2b;
+  --border:rgba(148,180,255,.10); --border-2:rgba(148,180,255,.16); --border-strong:rgba(148,180,255,.28);
+  --txt-1:#f5f8ff; --txt-2:#d5deef; --txt-3:#9aabc6; --txt-4:#6f819f; --txt-5:#506078;
+  --primary:#3b9eff; --primary-2:#2678f0; --primary-glow:rgba(59,158,255,.28);
+  --ice:#9ccfff; --ice-2:#5fb2ff;
+  --radius:10px; --radius-lg:14px; --radius-xl:18px;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.25); --shadow-lg:0 18px 48px rgba(0,0,0,.5);
+}
+body[data-plan="basic"]{--primary:#3b9eff;--primary-2:#2678f0}
+body[data-plan="premium"]{--primary:#6d8dff;--primary-2:#4f6ef0}
+body[data-plan="ultra"]{--primary:#a78bfa;--primary-2:#8b5cf6}
+body[data-plan="unlimited"]{--primary:#f5b83d;--primary-2:#e09a12}
+
+/* fundo: profundidade suave, estática */
+html{background:#0a0f18 !important}
+body,body.auth-body,body.legal-body{
+  background:
+    radial-gradient(900px 420px at 50% -120px, rgba(59,158,255,.16), transparent 70%),
+    radial-gradient(700px 400px at 100% 0%, rgba(109,141,255,.08), transparent 70%),
+    #0a0f18 !important;
+  background-repeat:no-repeat !important;background-attachment:scroll !important;
+}
+
+/* títulos mais firmes */
+h1,h2,h3,h4,.page-head h1,.stat-value,.auth-card h2,.legal-head h1,.hero h1{font-weight:700 !important;letter-spacing:-.02em !important}
+.hero h1{font-weight:800 !important;letter-spacing:-.035em !important}
+/* destaque de marca: só no trecho principal do título, em tons da mesma cor */
+.hero h1 .grad,.auth-aside h2 .grad,.grad{
+  background:linear-gradient(95deg,#8fd0ff 0%,#3b9eff 60%,#7b8cff 100%) !important;
+  -webkit-background-clip:text !important;background-clip:text !important;
+  -webkit-text-fill-color:transparent !important;color:transparent !important;
+}
+
+/* cartões com relevo e resposta ao toque */
+.card,.panel-card,.stat-card,.feature-card,.tier-card,.server-card,.auth-card{
+  background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0) 40%),var(--surface) !important;
+  border:1px solid var(--border) !important;
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 6px 20px rgba(0,0,0,.22) !important;
+  transition:border-color .18s ease,transform .18s ease,box-shadow .18s ease !important;
+}
+.card:hover,.panel-card:hover,.stat-card:hover,.feature-card:hover,.tier-card:hover,.server-card:hover{
+  transform:translateY(-2px) !important;border-color:rgba(59,158,255,.38) !important;
+  box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 12px 28px rgba(0,0,0,.34) !important;
+}
+.stat-card.clickable{cursor:pointer}
+.dashboard-hero,.welcome-hero,.hero-panel,.page-hero{
+  background:linear-gradient(135deg,rgba(59,158,255,.14),rgba(109,141,255,.06) 55%,rgba(15,22,34,.9)),var(--surface) !important;
+  border:1px solid var(--border-2) !important;
+}
+
+/* botão principal com presença */
+.btn-primary,.btn-primary:hover:not(:disabled){
+  background:linear-gradient(180deg,#4ca8ff,#2678f0) !important;color:#fff !important;border:1px solid rgba(255,255,255,.14) !important;
+  box-shadow:0 1px 0 rgba(255,255,255,.22) inset,0 6px 16px rgba(38,120,240,.30) !important;
+}
+.btn-primary:hover:not(:disabled){filter:brightness(1.08);transform:translateY(-1px) !important}
+.btn-primary:active:not(:disabled){transform:translateY(0) !important;filter:none}
+.btn{transition:filter .15s ease,transform .15s ease,background .15s ease,border-color .15s ease !important}
+.btn-ghost,.btn-outline{background:rgba(255,255,255,.03) !important;border:1px solid var(--border-2) !important}
+.btn-ghost:hover,.btn-outline:hover{background:rgba(59,158,255,.10) !important;border-color:rgba(59,158,255,.45) !important;color:#fff !important}
+.btn-danger{box-shadow:0 6px 16px rgba(239,68,68,.22) !important}
+
+/* ícones de estatística com cor (suave) */
+.stat-icon{border-radius:10px !important}
+.stat-icon.blue{background:rgba(59,158,255,.14) !important;color:#6db6ff !important}
+.stat-icon.green{background:rgba(52,211,153,.14) !important;color:#4ade9c !important}
+.stat-icon.amber{background:rgba(245,184,61,.14) !important;color:#f5b83d !important}
+.stat-icon.purple{background:rgba(139,124,255,.15) !important;color:#a99bff !important}
+.stat-icon.red{background:rgba(248,113,113,.14) !important;color:#f98080 !important}
+
+/* etiquetas e pílulas com tom da marca */
+.pill,.auth-pill{background:rgba(59,158,255,.10) !important;color:#9ccfff !important;border:1px solid rgba(59,158,255,.28) !important}
+.tag-info{background:rgba(59,158,255,.12) !important;color:#7cc0ff !important;border:1px solid rgba(59,158,255,.28) !important}
+.tag-gold{background:rgba(245,184,61,.12) !important;color:#f5c561 !important;border:1px solid rgba(245,184,61,.30) !important}
+.status-dot.pulse{animation:dotPulse 2.4s ease-in-out infinite !important}
+@keyframes dotPulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+/* navegação */
+.topbar{background:rgba(10,15,24,.97) !important;border-bottom:1px solid var(--border) !important}
+.sidebar{background:linear-gradient(180deg,#0d1420,#0a0f18) !important;border-right:1px solid var(--border) !important}
+.nav-link{border-radius:8px !important;transition:background .15s ease,color .15s ease !important}
+.nav-link:hover{background:rgba(148,180,255,.08) !important;color:#fff !important}
+.nav-link.active{background:linear-gradient(90deg,rgba(59,158,255,.20),rgba(59,158,255,.06)) !important;color:#fff !important;box-shadow:inset 3px 0 0 var(--primary) !important}
+
+/* campos */
+input,select,textarea{background:#0b111b !important;border:1px solid var(--border-2) !important}
+input:hover,select:hover,textarea:hover{border-color:var(--border-strong) !important}
+input:focus,select:focus,textarea:focus{border-color:var(--primary) !important;box-shadow:0 0 0 3px rgba(59,158,255,.22) !important}
+
+/* tabelas: linhas com leve destaque */
+tbody tr{transition:background .12s ease}
+tbody tr:hover{background:rgba(59,158,255,.06) !important}
+.frio-global-footer a:hover{color:var(--ice) !important}
+::selection{background:rgba(59,158,255,.35);color:#fff}

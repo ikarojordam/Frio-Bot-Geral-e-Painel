@@ -576,6 +576,17 @@ async function bootApp() {
 function bindGlobal() {
   $('btnBurger')?.addEventListener('click', toggleSidebar);
   $('sidebarOverlay')?.addEventListener('click', closeSidebar);
+  // iOS Safari nem sempre dispara "click" em área sem conteúdo: fecha por qualquer toque fora do menu.
+  const outsideClose = (e) => {
+    const sb = $('sidebar');
+    if (!sb || !sb.classList.contains('open')) return;
+    if (e.target.closest && (e.target.closest('#sidebar') || e.target.closest('#btnBurger'))) return;
+    closeSidebar();
+  };
+  document.addEventListener('pointerdown', outsideClose, true);
+  document.addEventListener('touchstart', outsideClose, { capture: true, passive: true });
+  // navegação sempre fecha o menu e destrava a rolagem, mesmo se algo falhar no meio
+  window.addEventListener('pagehide', () => { closeSidebar(); closeAllModals(); });
   $('btnLogout')?.addEventListener('click', () => doLogout());
   $('btnLogoutSide')?.addEventListener('click', () => doLogout());
 

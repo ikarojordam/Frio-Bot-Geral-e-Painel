@@ -4,7 +4,7 @@
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{min-height:100%}
-body{background-image:linear-gradient(rgba(3,6,20,.78),rgba(3,6,20,.90)),url("/assets/space-background.jpeg");background-size:cover;background-position:center;background-attachment:fixed;background-repeat:no-repeat}
+body{background-image:linear-gradient(rgba(3,6,20,.78),rgba(3,6,20,.90)),linear-gradient(transparent,transparent);background-size:cover;background-position:center;background-attachment:fixed;background-repeat:no-repeat}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:none;background:none}
 a{color:inherit;text-decoration:none}
@@ -501,7 +501,7 @@ body{background:radial-gradient(ellipse at 50% -20%,rgba(37,99,235,.16),transpar
 html { background:#05060a; }
 body, body.auth-body, body.legal-body {
   background-color:#05060a !important;
-  background-image: linear-gradient(180deg, rgba(4,5,14,.76), rgba(4,5,14,.90)), url("space-background.jpeg") !important;
+  background-image: linear-gradient(180deg, rgba(4,5,14,.76), rgba(4,5,14,.90)), linear-gradient(transparent,transparent) !important;
   background-position:center center !important;
   background-size:cover !important;
   background-repeat:no-repeat !important;

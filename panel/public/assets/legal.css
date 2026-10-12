@@ -380,7 +380,7 @@ ul{list-style:none}
 html { background:#05060a; }
 body, body.auth-body, body.legal-body {
   background-color:#05060a !important;
-  background-image: linear-gradient(180deg, rgba(4,5,14,.76), rgba(4,5,14,.90)), url("space-background.jpeg") !important;
+  background-image: linear-gradient(180deg, rgba(4,5,14,.76), rgba(4,5,14,.90)), linear-gradient(transparent,transparent) !important;
   background-position:center center !important;
   background-size:cover !important;
   background-repeat:no-repeat !important;
