@@ -1981,3 +1981,12 @@ body[data-plan="unlimited"] .tier-badge {
 #notifDrawer:not(.active){visibility:hidden!important;pointer-events:none!important;transform:translateX(105%)!important}
 #notifDrawer.active{visibility:visible;pointer-events:auto;transform:translateX(0)!important}
 #btnCloseDrawer{position:relative;z-index:5;min-width:44px;min-height:44px;touch-action:manipulation}
+
+
+/* Hotfix v6.2.5: no celular o menu começa sempre fora da tela; só abre com .open. */
+@media (max-width:1024px){
+  #sidebar:not(.open){transform:translateX(-105%) !important;visibility:hidden;pointer-events:none}
+  #sidebar.open{transform:translateX(0) !important;visibility:visible;pointer-events:auto}
+  #sidebarOverlay:not(.active){display:none !important;pointer-events:none !important}
+  #sidebarOverlay.active{display:block !important;pointer-events:auto !important}
+}

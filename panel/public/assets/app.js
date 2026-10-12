@@ -501,6 +501,8 @@ function showBlocked(title, text, code = '') {
   }
 }
 function showApp() {
+  // Nunca mostrar o painel com o menu mobile aberto após autenticação/retorno do navegador.
+  closeSidebar();
   $('bootScreen')?.classList.add('hidden');
   $('blockedScreen')?.classList.add('hidden');
   $('appShell')?.classList.remove('hidden');
@@ -2262,6 +2264,10 @@ function bindAllModals() {
 // BOOT FINAL
 // ═══════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
+  // Estado inicial seguro: menu lateral fechado e sem bloqueio de rolagem.
+  $('sidebar')?.classList.remove('open');
+  $('sidebarOverlay')?.classList.remove('active');
+  document.body.classList.remove('no-scroll');
   refreshIcons();
   bindGlobal();
   bindNav();
@@ -2270,6 +2276,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.addEventListener('pageshow', (e) => {
+  // Safari/iOS pode restaurar classes visuais da página a partir do cache BFCache.
+  closeSidebar();
   if (e.persisted && !APP.user) {
     window.location.reload();
   }
