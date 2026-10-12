@@ -9518,6 +9518,9 @@ client.on('shardDisconnect', (e, id) => console.log('🔌 [DISCONNECT]', id, 'co
 client.on('shardReconnecting', id => console.log('🔄 [RECONNECT]', id));
 client.on('shardResume', (id, r) => console.log('✅ [RESUME]', id, r));
 
+// ═══ SISTEMA ANTI-RAID CONFIGURÁVEL ═══
+require('./anti-raid-system')(client, { logChannelId: LOG_CHANNEL_ID });
+
 // ═══════════════════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════════════════

@@ -22,3 +22,7 @@ Para suporte, pedidos de autorização ou denúncias de uso indevido: **friomort
 
 Esse aviso não revoga licenças de terceiros já aplicáveis, não garante por si só a titularidade de cada arquivo e não substitui aconselhamento jurídico.
 
+
+
+## v1.6.0
+- Adicionado sistema Anti-Raid configuravel por servidor, com modulos, limites, acoes, whitelist e logs.
