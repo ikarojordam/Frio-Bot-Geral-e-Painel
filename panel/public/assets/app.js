@@ -214,6 +214,12 @@ async function api(path, opts = {}) {
     if (!data || typeof data !== 'object') data = { ok:false, error:'Resposta inválida.' };
     if (!res.ok && data.ok === undefined) data.ok = false;
     data._status = res.status;
+    // sessão vencida/encerrada no meio do uso: volta ao login em vez de ficar com telas vazias
+    if (res.status === 401 && !path.startsWith('/api/auth/') && !APP.sessionExpired) {
+      APP.sessionExpired = true;
+      toast('Sua sessão expirou. Entre novamente.', 'warn');
+      setTimeout(() => window.location.replace('/login'), 1500);
+    }
     return data;
   } catch (e) {
     return { ok:false, error:'Erro de conexão.', _status:0, _error:e };
@@ -324,6 +330,9 @@ async function markAllNotifsRead() {
 function openNotifDrawer() {
   const d = $('notifDrawer');
   if (!d) return;
+  d.style.visibility = 'visible';
+  d.style.pointerEvents = 'auto';
+  d.setAttribute('aria-hidden', 'false');
   d.classList.add('active');
   document.body.classList.add('no-scroll');
   renderDrawerNotifications();
@@ -333,6 +342,9 @@ function closeNotifDrawer() {
   const d = $('notifDrawer');
   if (!d) return;
   d.classList.remove('active');
+  d.setAttribute('aria-hidden', 'true');
+  d.style.visibility = 'hidden';
+  d.style.pointerEvents = 'none';
   if (!document.querySelector('.modal.active')) document.body.classList.remove('no-scroll');
 }
 
@@ -545,7 +557,11 @@ async function bootApp() {
     loadNotifications(true);
 
     clearInterval(APP.notifTimer);
-    APP.notifTimer = setInterval(() => loadNotifications(true), 30000);
+    APP.notifTimer = setInterval(() => { if (!document.hidden) loadNotifications(true); }, 30000);
+    if (!APP.visBound) {
+      APP.visBound = true;
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) loadNotifications(true); });
+    }
   } catch (e) {
     console.error('[boot]', e);
     showBlocked('Erro inesperado', 'Não foi possível carregar o painel.');
@@ -567,6 +583,13 @@ function bindGlobal() {
   $('btnCloseDrawer')?.addEventListener('click', closeNotifDrawer);
   $('btnMarkAllReadDrawer')?.addEventListener('click', markAllNotifsRead);
 
+  document.addEventListener('pointerdown', (e) => {
+    const closeButton = e.target.closest && e.target.closest('#btnCloseDrawer');
+    if (closeButton) {
+      e.preventDefault();
+      closeNotifDrawer();
+    }
+  }, { passive: false });
   document.addEventListener('click', (e) => {
     // Fechamento delegado para o drawer funcionar também em Safari/iOS.
     const closeDrawerButton = e.target.closest('#btnCloseDrawer');
@@ -651,7 +674,11 @@ async function loadBotStatus() {
   if (!r.ok) { dot.className = 'status-dot error'; lbl.textContent = 'Status indisponível'; return; }
 
   const { bot, kill_switch, maintenance } = r;
-  if (bot?.offline || !bot?.ok) {
+  if (bot?.configured === false) {
+    dot.className = 'status-dot offline';
+    lbl.textContent = 'Monitoramento do bot não configurado';
+    ping.textContent = '– ms'; up.textContent = '–'; gd.textContent = '– guilds';
+  } else if (bot?.offline || !bot?.ok) {
     dot.className = 'status-dot offline';
     lbl.textContent = 'Bot offline';
     ping.textContent = '– ms';
@@ -1501,8 +1528,10 @@ function bindDevServerActionsModal() {
   });
 
   $('actForcePremium')?.addEventListener('click', async () => {
-    const days = Number(prompt('Dias de premium (0 = permanente):', '30'));
-    if (!Number.isFinite(days)) return;
+    const raw = prompt('Dias de premium (0 = permanente):', '30');
+    if (raw === null) return; // Cancelar não pode virar "0 = permanente"
+    const days = Number(raw);
+    if (!Number.isFinite(days) || days < 0) return toast('Valor de dias inválido.', 'error');
     const r = await api('/api/dev/force-premium', {
       method:'POST',
       body:{ scope:'guild', target_id:APP.currentServerActions, days, reason:'Aplicado via painel DEV' },

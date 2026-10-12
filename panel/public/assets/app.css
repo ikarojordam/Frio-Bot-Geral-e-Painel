@@ -1976,3 +1976,8 @@ body[data-plan="unlimited"] .tier-badge {
 .tier-premium:hover, [data-tier="premium"]:hover { box-shadow:0 0 28px rgba(56,189,248,.13); }
 .tier-ultra:hover, [data-tier="ultra"]:hover { box-shadow:0 0 30px rgba(167,139,250,.18); }
 .tier-unlimited:hover, [data-tier="unlimited"]:hover { box-shadow:0 0 34px rgba(251,191,36,.18); }
+
+/* Correção do drawer no mobile: fechado não captura toques; botão X tem área tátil adequada. */
+#notifDrawer:not(.active){visibility:hidden!important;pointer-events:none!important;transform:translateX(105%)!important}
+#notifDrawer.active{visibility:visible;pointer-events:auto;transform:translateX(0)!important}
+#btnCloseDrawer{position:relative;z-index:5;min-width:44px;min-height:44px;touch-action:manipulation}

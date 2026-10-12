@@ -273,3 +273,6 @@ body {
 /* Performance: mídia responsiva sem alterar a identidade visual. */
 img, picture, video, canvas, svg { max-width:100%; }
 img { height:auto; }
+
+/* Perf iOS/Safari: fundo fixo causa repintura e engasgos ao rolar; em telas pequenas fica rolando junto. */
+@media (max-width: 1024px) { body { background-attachment: scroll !important; } }
