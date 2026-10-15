@@ -51,7 +51,8 @@ module.exports = function installAntiRaid(client, options = {}) {
     return 'ação não aplicada (permissão ou hierarquia insuficiente)';
   }
   const countInWindow = (map, key, now, windowMs) => { const arr = (map.get(key) || []).filter(t => now - t < windowMs); arr.push(now); map.set(key, arr); return arr.length; };
-  const admin = m => m.memberPermissions?.has(PermissionFlagsBits.Administrator) || m.guild?.ownerId === m.author?.id;
+  const isPrivilegedUser = id => typeof options.isDeveloper === 'function' && options.isDeveloper(String(id || ''));
+  const admin = m => m.memberPermissions?.has(PermissionFlagsBits.Administrator) || m.guild?.ownerId === m.author?.id || isPrivilegedUser(m.author?.id);
   const moduleLabels = { join: 'Entradas em massa', spam: 'Anti-spam', mentions: 'Anti-menções', invites: 'Anti-convites', antinuke: 'Anti-nuke', antiwebhook: 'Anti-webhook', antibot: 'Anti-bots' };
   const actionLabels = { suspiciousJoin: 'Entrada suspeita', spam: 'Spam', invite: 'Convites', mention: 'Menções', antinuke: 'Anti-nuke', antibot: 'Bot adicionado' };
   function dashboard(c, guild) {
@@ -116,7 +117,7 @@ module.exports = function installAntiRaid(client, options = {}) {
   });
   client.on('interactionCreate', async i => {
     if (!i.inGuild() || !i.customId?.startsWith('ar:')) return;
-    if (!i.memberPermissions?.has(PermissionFlagsBits.Administrator) && i.guild.ownerId !== i.user.id) return i.reply({ content: 'Apenas o dono ou administradores podem configurar o Anti-Raid.', ephemeral: true }).catch(() => {});
+    if (!i.memberPermissions?.has(PermissionFlagsBits.Administrator) && i.guild.ownerId !== i.user.id && !isPrivilegedUser(i.user?.id)) return i.reply({ content: 'Apenas o dono, administradores ou desenvolvedores autorizados podem configurar o Anti-Raid.', ephemeral: true }).catch(() => {});
     const c = cfg(i.guild.id);
     if (i.customId === 'ar:toggle') { c.enabled = !c.enabled; save(); return i.update({ embeds: [dashboard(c, i.guild)], components: dashboardRows(c) }).catch(() => {}); }
     if (i.customId === 'ar:reset') { configs[i.guild.id] = structuredClone(DEFAULT); save(); const fresh=cfg(i.guild.id); return i.update({ embeds: [dashboard(fresh, i.guild)], components: dashboardRows(fresh) }).catch(() => {}); }

@@ -1,6 +1,6 @@
 {
   "name": "frio-apostas",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "FrioBot — bot Discord com Anti-Raid configurável e execução multibot isolada",
   "main": "apostas.js",
   "engines": {

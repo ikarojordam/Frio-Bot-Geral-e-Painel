@@ -22,6 +22,23 @@ const STATE_ROOT = path.resolve(process.env.STATE_ROOT || path.join(__dirname, '
 const STATE_DIR = path.join(STATE_ROOT, BOT_INSTANCE_ID);
 try { fs.mkdirSync(STATE_DIR, { recursive: true }); } catch (e) { console.error('[STATE] Não foi possível criar diretório:', e.message); }
 
+// Personalização global deste bot (compartilhada entre todos os servidores atendidos por esta instância).
+const BOT_BRANDING_FILE = path.join(STATE_DIR, 'bot-branding.json');
+const BOT_BRANDING_DEFAULT = { name: 'BACK BOT', activity: 'BACK E-ESPORTES • /apostas painel', activityType: 'WATCHING', avatarUrl: '', bannerUrl: '' };
+let botBranding = { ...BOT_BRANDING_DEFAULT };
+try { botBranding = { ...BOT_BRANDING_DEFAULT, ...JSON.parse(fs.readFileSync(BOT_BRANDING_FILE, 'utf8')) }; } catch {}
+function saveBotBranding() {
+  try {
+    const tmp = `${BOT_BRANDING_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(botBranding, null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, BOT_BRANDING_FILE);
+  } catch (e) { console.error('[BOT-BRANDING] Falha ao salvar:', e.message); }
+}
+function isValidHttpUrl(value) {
+  if (!value) return true;
+  try { const u = new URL(value); return u.protocol === 'https:' || u.protocol === 'http:'; } catch { return false; }
+}
+
 const {
   Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder,
   ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle,
@@ -39,7 +56,7 @@ const { createClient } = require('@supabase/supabase-js');
 const QRCode = require('qrcode');
 
 // ═══ VERSÃO ═══
-const BOT_VERSION = 'v1.6.0';
+const BOT_VERSION = 'v1.7.0';
 
 // ═══ MARCA ═══
 const ORG_NAME  = 'BACK E-ESPORTES';
@@ -6382,9 +6399,43 @@ function devHub() {
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('dev_dashboard').setLabel('Dashboard').setEmoji('📊').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('dev_broadcast').setLabel('Broadcast').setEmoji('📢').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('dev_personalizar_bot').setLabel('Personalizar Bot').setEmoji('🎨').setStyle(ButtonStyle.Secondary),
       ),
     ],
   };
+}
+
+function devPanelPersonalizarBot() {
+  const typeNames = { PLAYING: 'Jogando', WATCHING: 'Assistindo', LISTENING: 'Ouvindo', COMPETING: 'Competindo' };
+  const e = new EmbedBuilder().setColor('#5865F2').setTitle('🎨 Personalizar Bot')
+    .setDescription('Personalização global: as alterações de nome, atividade e avatar valem para todos os servidores deste bot. Use o botão abaixo para editar.')
+    .addFields(
+      { name: 'Nome principal', value: String(botBranding.name || BOT_NAME).slice(0, 256), inline: true },
+      { name: 'Atividade', value: `${typeNames[botBranding.activityType] || 'Assistindo'} ${String(botBranding.activity || 'Sem atividade').slice(0, 200)}`, inline: true },
+      { name: 'Avatar', value: botBranding.avatarUrl ? 'URL configurada' : 'Usando avatar atual', inline: true },
+      { name: 'Banner', value: botBranding.bannerUrl ? 'URL salva' : 'Não configurado', inline: true },
+      { name: 'Limitação do Discord', value: 'O avatar, nome e atividade podem ser alterados pela API. O banner do perfil do bot não pode ser alterado pelo token do bot nesta integração; para aplicá-lo, use o Developer Portal. A URL fica salva aqui como referência.' }
+    ).setFooter({ text: 'Personalizar Bot • somente desenvolvedores' }).setTimestamp();
+  return { embeds: [e], components: [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('dev_personalizar_editar').setLabel('Editar personalização').setEmoji('✏️').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('dev_personalizar_aplicar').setLabel('Aplicar novamente').setEmoji('🔄').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('dev_back').setLabel('Voltar').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
+  )] };
+}
+
+async function applyBotBranding() {
+  if (!client.user) throw new Error('O cliente Discord ainda não está pronto.');
+  const typeMap = { PLAYING: ActivityType.Playing, WATCHING: ActivityType.Watching, LISTENING: ActivityType.Listening, COMPETING: ActivityType.Competing };
+  const errors = [];
+  const wantedName = String(botBranding.name || BOT_NAME).trim().slice(0, 32) || BOT_NAME;
+  if (client.user.username !== wantedName) {
+    try { await client.user.setUsername(wantedName); } catch (e) { errors.push(`Nome: ${e.message}`); }
+  }
+  if (botBranding.avatarUrl) {
+    try { await client.user.setAvatar(botBranding.avatarUrl); } catch (e) { errors.push(`Avatar: ${e.message}`); }
+  }
+  client.user.setPresence({ activities: botBranding.activity ? [{ name: String(botBranding.activity).slice(0, 128), type: typeMap[botBranding.activityType] ?? ActivityType.Watching }] : [], status: 'online' });
+  if (errors.length) throw new Error(errors.join(' | '));
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -6869,6 +6920,27 @@ client.on('interactionCreate', async (i) => {
     const cid = i.customId;
     const guild = i.guild;
 
+    if (cid === 'dev_personalizar_modal' && i.isModalSubmit()) {
+      const name = i.fields.getTextInputValue('bot_name').trim();
+      const activity = i.fields.getTextInputValue('bot_activity').trim();
+      const activityType = i.fields.getTextInputValue('bot_activity_type').trim().toUpperCase() || 'WATCHING';
+      const avatarUrl = i.fields.getTextInputValue('bot_avatar').trim();
+      const bannerUrl = i.fields.getTextInputValue('bot_banner').trim();
+      if (!name || name.length > 32) return i.reply({ content: 'O nome precisa ter entre 1 e 32 caracteres.', flags: EPHEMERAL });
+      if (activity.length > 128) return i.reply({ content: 'A atividade pode ter no máximo 128 caracteres.', flags: EPHEMERAL });
+      if (!['PLAYING','WATCHING','LISTENING','COMPETING'].includes(activityType)) return i.reply({ content: 'Tipo inválido. Use PLAYING, WATCHING, LISTENING ou COMPETING.', flags: EPHEMERAL });
+      if (!isValidHttpUrl(avatarUrl) || !isValidHttpUrl(bannerUrl)) return i.reply({ content: 'As URLs precisam começar com https:// ou http://.', flags: EPHEMERAL });
+      botBranding = { ...botBranding, name, activity, activityType, avatarUrl, bannerUrl };
+      saveBotBranding();
+      try {
+        await applyBotBranding();
+        await logDevAction(i.user.id, 'bot_personalizar', guild?.id || null, { name, activityType, hasAvatar: Boolean(avatarUrl), hasBanner: Boolean(bannerUrl) });
+        return i.reply({ content: 'Personalização salva. Nome e atividade aplicados; o avatar pode levar alguns instantes para atualizar. O banner do perfil precisa ser aplicado manualmente no Developer Portal.', embeds: devPanelPersonalizarBot().embeds, flags: EPHEMERAL });
+      } catch (e) {
+        return i.reply({ content: `Configuração salva, mas houve uma falha ao aplicar: ${String(e.message).slice(0, 1200)}`, flags: EPHEMERAL });
+      }
+    }
+
     // ═══ SELECT CATEGORIA ═══
     if (cid === 'dev_cat_pick') {
       const v = i.values[0];
@@ -6881,6 +6953,22 @@ client.on('interactionCreate', async (i) => {
 
     // ═══ BOTÕES DEV ═══
     if (cid === 'dev_back') return i.update(devHub());
+    if (cid === 'dev_personalizar_bot') return i.update(devPanelPersonalizarBot());
+    if (cid === 'dev_personalizar_editar') {
+      const modal = new ModalBuilder().setCustomId('dev_personalizar_modal').setTitle('Personalizar Bot');
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('bot_name').setLabel('Nome principal (1–32 caracteres)').setStyle(TextInputStyle.Short).setMaxLength(32).setValue(String(botBranding.name || BOT_NAME).slice(0,32)).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('bot_activity').setLabel('Texto da atividade (até 128)').setStyle(TextInputStyle.Short).setMaxLength(128).setValue(String(botBranding.activity || '').slice(0,128)).setRequired(false)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('bot_activity_type').setLabel('Tipo: PLAYING/WATCHING/LISTENING/COMPETING').setStyle(TextInputStyle.Short).setMaxLength(10).setValue(String(botBranding.activityType || 'WATCHING')).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('bot_avatar').setLabel('URL do avatar (vazio mantém o atual)').setStyle(TextInputStyle.Short).setMaxLength(400).setValue(String(botBranding.avatarUrl || '').slice(0,400)).setRequired(false)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('bot_banner').setLabel('URL do banner (salva como referência)').setStyle(TextInputStyle.Short).setMaxLength(400).setValue(String(botBranding.bannerUrl || '').slice(0,400)).setRequired(false))
+      );
+      return i.showModal(modal);
+    }
+    if (cid === 'dev_personalizar_aplicar') {
+      try { await applyBotBranding(); return i.update(devPanelPersonalizarBot()); }
+      catch (e) { return i.reply({ content: `Falha ao aplicar: ${String(e.message).slice(0, 1200)}`, flags: EPHEMERAL }); }
+    }
     if (cid === 'dev_dashboard') return i.update(await devPanelDashboard());
     if (cid === 'dev_bot') return i.update(await devPanelBot());
     if (cid === 'dev_premium') return i.update(await devPanelPremium(guild));
@@ -8833,12 +8921,8 @@ const onReady = async () => {
   try { await registerCommands(); } catch (e) { console.error('❌ [CMDS] Falha geral:', e.message); }
 
 
-  // Nome do bot = BACK BOT (o Discord limita a troca de username; falha é ignorada)
-  if (client.user.username !== BOT_NAME) {
-    client.user.setUsername(BOT_NAME)
-      .then(() => console.log(`✏️ Nome do bot alterado para ${BOT_NAME}`))
-      .catch((e) => console.warn(`⚠️ Não consegui trocar o nome do bot: ${e.message}`));
-  }
+  // Aplica a personalização global salva para esta instância.
+  applyBotBranding().catch((e) => console.warn(`[BOT-BRANDING] Não foi possível aplicar toda a personalização: ${e.message}`));
   console.log(`🔍 [READY] ${client.guilds.cache.size} guilds`);
 
   // Sync guilds com log de falhas
@@ -8867,7 +8951,7 @@ const onReady = async () => {
   welcomeBoot().catch((e) => console.error('[WELCOME] boot:', e.message));
 
   client.user.setPresence({
-    activities: [{ name: `${ORG_EMOJI} ${ORG_NAME} • /apostas painel`, type: ActivityType.Watching }],
+    activities: botBranding.activity ? [{ name: String(botBranding.activity).slice(0, 128), type: ({ PLAYING: ActivityType.Playing, WATCHING: ActivityType.Watching, LISTENING: ActivityType.Listening, COMPETING: ActivityType.Competing })[botBranding.activityType] ?? ActivityType.Watching }] : [],
     status: 'online',
   });
 
@@ -9532,7 +9616,7 @@ client.on('shardReconnecting', id => console.log('🔄 [RECONNECT]', id));
 client.on('shardResume', (id, r) => console.log('✅ [RESUME]', id, r));
 
 // ═══ SISTEMA ANTI-RAID CONFIGURÁVEL ═══
-require('./anti-raid-system')(client, { logChannelId: LOG_CHANNEL_ID });
+require('./anti-raid-system')(client, { logChannelId: LOG_CHANNEL_ID, isDeveloper });
 
 // ═══════════════════════════════════════════════════════════
 // .apostas — PAINEL DE STATUS E ESTATÍSTICAS DO BOT

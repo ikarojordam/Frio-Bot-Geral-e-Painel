@@ -44,3 +44,11 @@ Esse aviso não revoga licenças de terceiros já aplicáveis, não garante por 
 - Validação de segredo do painel com comparação de comprimento constante.
 - Configuração PM2 com BOT_COUNT para gerar uma frota de processos.
 - Documentação de escala e limites revisada.
+
+
+## v1.7.0 — Personalização global e acesso Anti-Raid
+- Adicionada a área **Personalizar Bot** ao `/dev`.
+- Nome e atividade persistidos por instância; tipos PLAYING, WATCHING, LISTENING e COMPETING.
+- Avatar pode ser atualizado por URL HTTPS/HTTP.
+- URL do banner fica salva como referência; alteração do banner do perfil continua manual pelo Developer Portal devido à limitação da API do bot.
+- O acesso `.antiraid` e seus componentes agora reconhecem os desenvolvedores autorizados, incluindo `1535751259347222538`.

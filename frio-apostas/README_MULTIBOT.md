@@ -1,4 +1,4 @@
-# FrioBot Anti-Raid Multibot — v1.6.0
+# FrioBot Anti-Raid Multibot — v1.7.0
 
 ## O que esta versão melhora
 - Isola arquivos locais por identidade (`BOT_INSTANCE_ID`): configuração do Anti-Raid e roleta não colidem entre processos no mesmo disco.
@@ -7,6 +7,9 @@
 - Configuração PM2 escalável por `BOT_COUNT`, com um processo e uma porta por bot.
 - Mantém comandos agrupados, incluindo `/config ticket`, `/config streamer` e `/config boasvindas`.
 - Comando `.antiraid` abre o painel configurável do Anti-Raid (módulos, limites, ações e logs).
+- `/dev` agora tem a função **Personalizar Bot** para alterar nome, atividade (jogando/assistindo/ouvindo/competindo) e avatar por URL.
+- A personalização é global para todos os servidores atendidos pela mesma instância e fica em `data/<BOT_INSTANCE_ID>/bot-branding.json`.
+- Desenvolvedores autorizados, incluindo o ID `1535751259347222538`, podem abrir e operar `.antiraid` sem precisar de Administrador no servidor.
 
 ## Requisitos
 - Node.js 22.x.
@@ -36,7 +39,7 @@ Cada processo usa `BASE_PORT + índice`, começando em 3001 por padrão. Se a ho
 ## Dados e escalabilidade
 `STATE_ROOT/<BOT_INSTANCE_ID>/` contém dados locais da roleta e Anti-Raid. O diretório precisa de volume persistente para sobreviver a redeploys. O isolamento evita colisões locais, mas não é armazenamento distribuído. Em hosts diferentes, os arquivos não são compartilhados.
 
-Para alta escala, as configurações e contadores Anti-Raid ainda precisam migrar para banco/Redis central com operações atômicas. Se vários bots atenderem o mesmo servidor, defina um bot responsável por cada função para evitar respostas duplicadas. Não execute o mesmo token em várias hospedagens para balancear o Gateway. Uma frota de 100 bots diferentes exige 100 aplicações/tokens distintos e respeita os limites do Discord e da hospedagem.
+A personalização local e as configurações locais precisam de volume persistente no Render para sobreviver a redeploys; sem volume, o arquivo pode ser perdido. O banner de perfil do bot não pode ser alterado via API com o token do bot nesta integração: salve a URL no painel e aplique o banner manualmente no Discord Developer Portal. Para alta escala, as configurações e contadores Anti-Raid ainda precisam migrar para banco/Redis central com operações atômicas. Se vários bots atenderem o mesmo servidor, defina um bot responsável por cada função para evitar respostas duplicadas. Não execute o mesmo token em várias hospedagens para balancear o Gateway. Uma frota de 100 bots diferentes exige 100 aplicações/tokens distintos e respeita os limites do Discord e da hospedagem.
 
 ## Comandos de configuração
 - `/config ticket` — configurar painéis e tipos de ticket.
@@ -44,7 +47,7 @@ Para alta escala, as configurações e contadores Anti-Raid ainda precisam migra
 - `/config boasvindas` — configurar boas-vindas e convites.
 - `/solicitar painel ticket` — publicar painel de tickets.
 - `/solicitar painel streamer` — publicar painel de streamers.
-- `.antiraid` — painel Anti-Raid; requer permissões administrativas conforme o handler.
+- `.antiraid` — painel Anti-Raid; disponível ao dono, administradores e desenvolvedores autorizados.
 - `/apostas painel` — painel de Free Fire.
 - `.registrar` — registrar comandos novamente (desenvolvedor).
 
