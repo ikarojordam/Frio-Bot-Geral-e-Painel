@@ -1,6 +1,6 @@
 {
   "name": "frio-apostas",
-  "version": "2.0.0",
+  "version": "2.0.4",
   "description": "BACK BOT — Sistema de apostas FF com painel de automações (multibot/frota)",
   "main": "apostas.js",
   "engines": { "node": "22.x" },

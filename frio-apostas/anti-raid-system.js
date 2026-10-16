@@ -108,8 +108,8 @@ function createSupabaseStore(fleetStore, botId, fallbackFactory, logger = consol
   };
   return {
     kind: 'supabase',
-    async loadMany(guildIds) { if (fallback) return fallback.loadMany(guildIds); try { return await fleetStore.loadAntiRaid(botId, guildIds); } catch (e) { return useFallback(e).loadMany(guildIds); } },
-    async save(guildId, config) { if (fallback) return fallback.save(guildId, config); try { return await fleetStore.saveAntiRaid(botId, guildId, config); } catch (e) { return useFallback(e).save(guildId, config); } },
+    async loadMany(guildIds) { if (fallback) return fallback.loadMany(guildIds); try { if (typeof fleetStore?.loadAntiRaid !== 'function') { const e = new Error('FleetStore não implementa loadAntiRaid'); e.code = 'MISSING_MIGRATION'; throw e; } return await fleetStore.loadAntiRaid(botId, guildIds); } catch (e) { return useFallback(e).loadMany(guildIds); } },
+    async save(guildId, config) { if (fallback) return fallback.save(guildId, config); try { if (typeof fleetStore?.saveAntiRaid !== 'function') { const e = new Error('FleetStore não implementa saveAntiRaid'); e.code = 'MISSING_MIGRATION'; throw e; } return await fleetStore.saveAntiRaid(botId, guildId, config); } catch (e) { return useFallback(e).save(guildId, config); } },
   };
 }
 

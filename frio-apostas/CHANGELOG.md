@@ -54,3 +54,19 @@ Esse aviso não revoga licenças de terceiros já aplicáveis, não garante por 
 ## v1.5.0
 - Painel Anti-Raid em embed com botões, menus e modal para configuração interativa.
 - Suporte a arquivo de ambiente selecionável por processo (`ENV_FILE`) e exemplo PM2 para múltiplos bots com tokens/portas distintos.
+
+## Patch de manutenção — 2026-10-16
+- `+lockall` e `+unlockall`: atualizada a leitura dos overwrites antes de remover permissões explícitas no desbloqueio.
+- `.ss`, `.telmob` e `.telemu`: consultam a fila de analistas; os cargos de Mobile/Emulador são definidos no painel efêmero de apostas.
+- `.gp [chave PIX ou link] [valor opcional]`: gera QR Code, embed e botão para revelar a chave/link em resposta efêmera. Valor padrão configurável por `.gpconfig valor 25,00`.
+- `!criar cargo Dev`: cria o cargo Dev para desenvolvedores autorizados, sem conceder permissões administrativas automaticamente.
+- Anti-Raid: o adaptador Supabase agora faz fallback para arquivo quando o FleetStore não oferece os métodos de Anti-Raid (ex.: mocks/integrações antigas), em vez de falhar silenciosamente sem configuração.
+- Verificação após patch: `npm run check` e `npm test` aprovados (20 testes).
+
+Limitações importantes: o QR Code do `.gp` codifica exatamente a chave/link informado; não é um payload Pix Cobrança dinâmico e não valida beneficiário nem valor no banco. O botão não copia diretamente para a área de transferência (limitação do Discord); ele mostra o conteúdo em resposta efêmera para cópia manual. A cobertura do Anti-Raid continua parcial, conforme `README_ANTI_RAID.md`.
+
+
+## v2.0.4 — Correção de UX do painel de apostas
+- Movidos os seletores SS Mobile/Emulador para a própria seção **Apostas** do painel efêmero existente `/apostas painel`.
+- O painel mostra os cargos salvos e atualiza a mensagem efêmera após uma seleção.
+- Nenhum novo comando slash foi adicionado; existe apenas `/apostas painel`.

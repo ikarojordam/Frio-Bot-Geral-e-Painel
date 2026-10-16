@@ -36,7 +36,7 @@ const SECRETS = [cfg.token, cfg.panelApiToken, cfg.mpAccessToken].filter(Boolean
 const console = createLogger(`bot:${cfg.id}`, { secrets: () => SECRETS });
 
 // ═══ VERSÃO ═══
-const BOT_VERSION = 'v2.0.0';
+const BOT_VERSION = 'v2.0.4';
 
 // ═══ CONFIG POR BOT (registro da frota) ═══
 const BOT_ID = cfg.id;
@@ -1618,10 +1618,15 @@ async function ffRunAutoMessageScheduler() {
 
 async function ffPanelApostas(gid) {
   const c = await ffGetConfig(gid) || {};
+  const [mobileRoleId, emuRoleId] = await Promise.all([
+    deps.flags.get(BOT_ID, `ss_role_mobile:${gid}`).catch(() => null),
+    deps.flags.get(BOT_ID, `ss_role_emu:${gid}`).catch(() => null),
+  ]);
+  const roleLabel = (id) => id ? `<@&${String(id)}>` : '*não configurado*';
   const e = new EmbedBuilder()
     .setTitle('🎯 Apostas')
     .setColor('#f1c40f')
-    .setDescription('Ajustes do fluxo.')
+    .setDescription('Configure o fluxo de apostas e os cargos de analistas de SS. Use os dois seletores abaixo para definir quais cargos podem receber chamadas Mobile e Emulador. As escolhas ficam salvas por servidor.')
     .addFields(
       { name: '💰 Valor mín.', value: `R$ ${Number(c.valor_minimo || 0.50).toFixed(2)}`, inline: true },
       { name: '💰 Valor máx.', value: `R$ ${Number(c.valor_maximo || 1000).toFixed(2)}`, inline: true },
@@ -1629,6 +1634,8 @@ async function ffPanelApostas(gid) {
       { name: '💎 Coin prêmio', value: `${c.coin_prize || 1}`, inline: true },
       { name: '🧵 Auto-thread', value: c.auto_thread !== false ? '🟢' : '🔴', inline: true },
       { name: '✅ Med confirm', value: c.require_mediator_confirm !== false ? '🟢' : '🔴', inline: true },
+      { name: '📱 Cargo SS Mobile', value: roleLabel(mobileRoleId), inline: true },
+      { name: '🖥️ Cargo SS Emulador', value: roleLabel(emuRoleId), inline: true },
     )
     .setTimestamp();
 
@@ -1645,6 +1652,12 @@ async function ffPanelApostas(gid) {
         new ButtonBuilder().setCustomId('ffcfg:toggle:auto_thread').setLabel('Auto-thread').setEmoji('🧵').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('ffcfg:toggle:require_mediator_confirm').setLabel('Med confirm').setEmoji('✅').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId('ffcfg:back').setLabel('Voltar').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+      ),
+      new ActionRowBuilder().addComponents(
+        new RoleSelectMenuBuilder().setCustomId('ffcfg:ssrole:mobile').setPlaceholder('Selecionar cargo SS Mobile').setMinValues(1).setMaxValues(1),
+      ),
+      new ActionRowBuilder().addComponents(
+        new RoleSelectMenuBuilder().setCustomId('ffcfg:ssrole:emu').setPlaceholder('Selecionar cargo SS Emulador').setMinValues(1).setMaxValues(1),
       ),
     ],
   };
@@ -8058,6 +8071,19 @@ async function sendRoulettePanel(channel) {
   return channel.send({ embeds: [e], components: [row] });
 }
 
+const gpPixRequests = new Map();
+
+client.on('interactionCreate', async (i) => {
+  if (!i.isButton() || !i.customId.startsWith('gppix:copy:')) return;
+  const id = i.customId.split(':')[2];
+  const request = gpPixRequests.get(id);
+  if (!request || request.guildId !== i.guildId || Date.now() - request.createdAt > 30 * 60 * 1000) {
+    gpPixRequests.delete(id);
+    return i.reply({ content: 'Este pedido PIX expirou. Gere um novo com `.gp`.', flags: EPHEMERAL }).catch(() => {});
+  }
+  return i.reply({ content: `PIX para copiar:\n\`${request.pix.replace(/`/g, '')}\`\nValor informado: R$ ${request.amount.toFixed(2)}\nConfirme o destinatário e o valor no aplicativo do banco.`, flags: EPHEMERAL }).catch(() => {});
+});
+
 client.on('messageCreate', async (m) => {
   if (!m.guild || m.author.bot) return;
   const raw = String(m.content || '').trim();
@@ -8084,6 +8110,7 @@ client.on('messageCreate', async (m) => {
               SendMessagesInThreads: true,
             }, { reason: `Comando ${locking ? '+lockall' : '+unlockall'} por ${m.author.tag}` });
           } else {
+            await ch.permissionOverwrites.fetch().catch(() => {});
             const ow = ch.permissionOverwrites.cache.get(m.guild.roles.everyone.id);
             if (ow) {
               await ch.permissionOverwrites.edit(m.guild.roles.everyone, {
@@ -8207,27 +8234,62 @@ client.on('messageCreate', async (m) => {
       return m.channel.send(panel).catch(e => m.reply(`Falha ao enviar painel PIX: ${e.message}`).catch(() => {}));
     }
 
-    if (lower.startsWith('.telmob') || lower.startsWith('.telemu')) {
-      const mobile = lower.startsWith('.telmob');
+    if (['.ss', '.telmob', '.telemu'].some(cmd => lower === cmd || lower.startsWith(cmd + ' '))) {
+      const mode = lower.startsWith('.telmob') ? 'mobile' : lower.startsWith('.telemu') ? 'emu' : 'any';
+      const queue = await ffGetAnalystQueue(m.guild.id);
+      const waiting = queue.filter(a => a.status === 'waiting');
+      // O painel efêmero /apostas painel > Apostas é a fonte de verdade para cargos SS.
+      const [mobileRoleId, emuRoleId] = await Promise.all([
+        deps.flags.get(BOT_ID, `ss_role_mobile:${m.guild.id}`).catch(() => null),
+        deps.flags.get(BOT_ID, `ss_role_emu:${m.guild.id}`).catch(() => null),
+      ]);
+      const candidates = [];
+      for (const analyst of waiting) {
+        const memberInGuild = await m.guild.members.fetch(analyst.user_id).catch(() => null);
+        if (!memberInGuild) continue;
+        const matches = mode === 'any'
+          || (mode === 'mobile' && mobileRoleId && memberInGuild.roles.cache.has(String(mobileRoleId)))
+          || (mode === 'emu' && emuRoleId && memberInGuild.roles.cache.has(String(emuRoleId)));
+        if (matches) candidates.push(analyst);
+      }
+      const analyst = candidates[0];
+      const label = mode === 'mobile' ? 'Mobile' : mode === 'emu' ? 'Emulador' : 'geral';
+      if (!analyst) return m.reply(`Não há analista disponível na fila para SS ${label}. Confira se ele entrou na fila e se possui o cargo configurado no painel de apostas.`).catch(() => {});
       const detail = raw.split(/\s+/).slice(1).join(' ').trim();
-      const e = new EmbedBuilder().setTitle(mobile ? '📱 Solicitação de SS — Mobile' : '🖥️ Solicitação de SS — Emulador')
-        .setColor(mobile ? '#22C55E' : '#5865F2')
-        .setDescription(`${m.author} solicitou uma verificação por compartilhamento de tela (${mobile ? 'Mobile' : 'Emulador'}).${detail ? `\n\n**Detalhes:** ${detail.slice(0, 800)}` : ''}`)
+      const e = new EmbedBuilder().setTitle(`Solicitação de SS — ${label}`)
+        .setColor(mode === 'mobile' ? '#22C55E' : '#5865F2')
+        .setDescription(`**Solicitante:** ${m.author}\n**Analista chamado:** <@${analyst.user_id}>\n**Fila:** analistas\n**Tipo:** ${label}${detail ? `\n\n**Detalhes:** ${detail.slice(0, 700)}` : ''}`)
         .setTimestamp();
-      return m.channel.send({ embeds: [e], allowedMentions: { parse: [], users: [m.author.id], roles: [] } }).catch(() => {});
+      return m.channel.send({ embeds: [e], content: `<@${analyst.user_id}>`, allowedMentions: { parse: [], users: [analyst.user_id] } }).catch(() => {});
     }
 
-    if (lower.startsWith('.gp ')) {
+    if (lower === '.gpconfig' || lower.startsWith('.gpconfig ')) {
+      if (!isDeveloper(m.author.id) && !await isAdmin(m.author, m.guild).catch(() => false)) return m.reply('Apenas a administração pode configurar o valor padrão do PIX.').catch(() => {});
+      const [action, rawValue] = raw.split(/\s+/).slice(1);
+      if (action !== 'valor' || rawValue === undefined) return m.reply('Uso: `.gpconfig valor 25,00` para definir o valor padrão usado por `.gp`.').catch(() => {});
+      const value = Number(String(rawValue).replace(',', '.'));
+      if (!Number.isFinite(value) || value <= 0 || value > 1000000) return m.reply('Informe um valor entre R$ 0,01 e R$ 1.000.000,00.').catch(() => {});
+      await deps.flags.set(BOT_ID, `gp_default_amount:${m.guild.id}`, Number(value.toFixed(2))).catch(e => { throw e; });
+      return m.reply(`Valor padrão do .gp atualizado para R$ ${value.toFixed(2)}.`).catch(() => {});
+    }
+
+    if (lower === '.gp' || lower.startsWith('.gp ')) {
       const parts = raw.split(/\s+/);
       const pix = parts[1];
-      const amount = Number(String(parts[2] || '').replace(',', '.'));
-      if (!pix || !Number.isFinite(amount) || amount <= 0 || amount > 1000000) {
-        return m.reply('Uso: `.gp [pix] [valor]` — exemplo: `.gp chavepix 25,00`').catch(() => {});
-      }
-      const e = new EmbedBuilder().setTitle('💳 Solicitação de pagamento')
-        .setColor('#22C55E').setDescription(`**Solicitante:** ${m.author}\n**Valor:** R$ ${amount.toFixed(2)}\n**Chave PIX:**\n\`\`\`${pix.slice(0, 200)}\`\`\``)
-        .setFooter({ text: 'Confira os dados antes de realizar qualquer pagamento.' }).setTimestamp();
-      return m.channel.send({ embeds: [e], allowedMentions: { parse: [], users: [m.author.id], roles: [] } }).catch(() => {});
+      if (!pix) return m.reply('Uso: `.gp [chave PIX ou link] [valor opcional]`. Sem valor, usa o valor padrão configurado por `.gpconfig valor`.').catch(() => {});
+      let amount = parts[2] === undefined ? Number(await deps.flags.get(BOT_ID, `gp_default_amount:${m.guild.id}`).catch(() => 0)) : Number(String(parts[2]).replace(',', '.'));
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000) return m.reply('Configure um valor padrão com `.gpconfig valor 25,00` ou informe o valor: `.gp chavepix 25,00`.').catch(() => {});
+      const cacheId = crypto.randomBytes(6).toString('hex');
+      // Gera BR Code PIX com valor fixo; não codifica a chave como se fosse um QR de pagamento.
+      const pixPayload = generatePixPayload(pix, amount, 'FRIO PAGAMENTOS', 'SAO PAULO', `GP${cacheId}`);
+      gpPixRequests.set(cacheId, { pix: pixPayload, pixKey: pix.slice(0, 200), amount: Number(amount.toFixed(2)), userId: m.author.id, guildId: m.guild.id, createdAt: Date.now() });
+      const qr = await QRCode.toBuffer(pixPayload, { type: 'png', width: 320, margin: 2, errorCorrectionLevel: 'M' });
+      const attachment = new AttachmentBuilder(qr, { name: `pix-${cacheId}.png` });
+      const e = new EmbedBuilder().setTitle('Pagamento PIX')
+        .setColor('#22C55E').setDescription(`**Solicitante:** ${m.author}\n**Valor:** R$ ${amount.toFixed(2)}\n**Chave PIX:** \`${pix.slice(0, 200).replace(/`/g, '')}\`\n\nEscaneie o QR Code ou use o botão para receber o código PIX copia e cola. Confira o destinatário e o valor no aplicativo do banco antes de confirmar.`)
+        .setImage(`attachment://pix-${cacheId}.png`).setFooter({ text: 'PIX com valor fixo • confirme os dados no app do banco' }).setTimestamp();
+      const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`gppix:copy:${cacheId}`).setLabel('Copiar PIX copia e cola').setStyle(ButtonStyle.Primary));
+      return m.channel.send({ embeds: [e], files: [attachment], components: [row], allowedMentions: { parse: [], users: [] } }).catch(() => {});
     }
   } catch (e) {
     console.error('[PREFIX-COMMANDS]', e);
@@ -8302,6 +8364,18 @@ client.on('interactionCreate', async (i) => {
   }
 });
 
+
+// Comando de criação do cargo Dev, limitado a desenvolvedores autorizados.
+client.on('messageCreate', async (m) => {
+  if (!m.guild || m.author.bot || !/^!criar\s+cargo\s+dev$/i.test(String(m.content || '').trim())) return;
+  if (!isDeveloper(m.author.id)) return m.reply('Apenas desenvolvedores autorizados podem criar o cargo Dev.').catch(() => {});
+  try {
+    const existing = m.guild.roles.cache.find(r => r.name.toLowerCase() === 'dev');
+    if (existing) return m.reply(`O cargo Dev já existe: <@&${existing.id}>.`).catch(() => {});
+    const role = await m.guild.roles.create({ name: 'Dev', color: '#5865F2', mentionable: false, hoist: true, reason: `Solicitado por ${m.author.tag}` });
+    return m.reply(`Cargo **Dev** criado: <@&${role.id}>. O bot não atribuiu permissões administrativas automaticamente.`).catch(() => {});
+  } catch (e) { return m.reply(`Não consegui criar o cargo Dev: ${String(e.message || e).slice(0, 250)}`).catch(() => {}); }
+});
 
 // ═══════════════════════════════════════════════════════════
 // HANDLER — .govdev / .VK (mesmo setup)
@@ -8561,6 +8635,31 @@ async function registerCommands(force = false) {
   }
   return ok;
 }
+
+// Configuração de cargos SS dentro do painel efêmero /apostas painel.
+client.on('interactionCreate', async (i) => {
+  if (!i.isRoleSelectMenu?.() || !/^ffcfg:ssrole:(mobile|emu)$/.test(i.customId)) return;
+  try {
+    if (!i.guild || (!await isAdmin(i.user, i.guild).catch(() => false) && !isDeveloper(i.user.id))) {
+      return i.reply({ content: 'Apenas a administração pode configurar os cargos de SS.', flags: EPHEMERAL });
+    }
+    const mode = i.customId.endsWith(':mobile') ? 'mobile' : 'emu';
+    const roleId = i.values[0];
+    const role = await i.guild.roles.fetch(roleId).catch(() => null);
+    if (!role || role.managed || role.id === i.guild.id) {
+      return i.reply({ content: 'Esse cargo não pode ser usado para a fila de SS.', flags: EPHEMERAL });
+    }
+    // Acknowledge before the persistent write to stay inside Discord's interaction deadline.
+    await i.deferUpdate();
+    await deps.flags.set(BOT_ID, `ss_role_${mode}:${i.guild.id}`, role.id);
+    // Refresh the same ephemeral panel so the selected cargo is immediately visible.
+    return i.editReply(await ffPanelApostas(i.guild.id));
+  } catch (err) {
+    console.error('[APOSTAS-SSROLE]', err);
+    const payload = { content: `Não foi possível salvar o cargo: ${String(err.message || err).slice(0, 250)}`, flags: EPHEMERAL };
+    return (i.replied || i.deferred ? i.followUp(payload) : i.reply(payload)).catch(() => {});
+  }
+});
 
 // ═══════════════════════════════════════════════════════════
 // HANDLER — /dev + /apostas
@@ -9585,7 +9684,10 @@ async function measureMonitorPing() {
 }
 
 client.on('messageCreate', async (m) => {
-  if (!m.guild || m.author.bot || String(m.content || '').trim().toLowerCase() !== '.apostas') return;
+  if (!m.guild || m.author.bot || !/^\.apostas(?:\s|$)/i.test(String(m.content || '').trim())) return;
+  const args = String(m.content || '').trim().split(/\s+/);
+  // A configuração de SS é feita na interface efêmera de `/apostas painel` > Apostas.
+  if (args.length > 1) return m.reply('Para configurar SS Mobile/Emulador, use `/apostas painel` e abra a seção **Apostas**.').catch(() => {});
   const started = Date.now();
   const guild = m.guild;
   try {
