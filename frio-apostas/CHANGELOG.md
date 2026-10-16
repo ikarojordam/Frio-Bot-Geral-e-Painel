@@ -84,3 +84,13 @@ Limitações importantes: o QR Code do `.gp` codifica exatamente a chave/link in
 - Reforçada a detecção de rate limit no envio de embeds para melhorar a recuperação em setups com muitas publicações.
 - A publicação manual de apostas usa seletor nativo de canal do Discord com pesquisa, sem o limite dos primeiros 25 canais.
 - Ao escolher uma modalidade e canal, é possível publicar todos os valores de aposta em ordem decrescente, ou escolher apenas um valor.
+
+
+## v2.0.7 — filas, partidas e PIX (2026-10-16)
+- Reduzida a latência de criação de tópicos: removida pausa artificial, config e mediador carregados em paralelo, convites e logs não bloqueiam a publicação inicial.
+- Cancelar fila/partida confirma a interação assim que o estado é atualizado; renomeação, limpeza e arquivamento continuam em segundo plano.
+- Controles da partida reunidos em menu selecionável: enviar sala, escolher vencedor e cancelar.
+- Escolher vencedor apenas grava a seleção; o botão **Finalizar partida** aparece nos controles da partida após a escolha e só então credita resultado/coins e libera o mediador.
+- Adicionado botão **Copiar PIX** com chave e valor em resposta efêmera.
+- Configuração PIX da partida grava o PIX individual do mediador atribuído, sem sobrescrever o PIX global do servidor; painel PIX continua disponível a todos os usuários com cargo de mediador configurado.
+- Verificações: `node --check bot-runtime.js` e `npm test` (29 testes aprovados).

@@ -36,7 +36,7 @@ const SECRETS = [cfg.token, cfg.panelApiToken, cfg.mpAccessToken].filter(Boolean
 const console = createLogger(`bot:${cfg.id}`, { secrets: () => SECRETS });
 
 // ═══ VERSÃO ═══
-const BOT_VERSION = 'v2.0.6';
+const BOT_VERSION = 'v2.0.7';
 
 // ═══ CONFIG POR BOT (registro da frota) ═══
 const BOT_ID = cfg.id;
@@ -1058,8 +1058,7 @@ function ffThreadName(status, value, ids, matchId) {
 
 async function ffCriarThreadAposta(g, ids, bet) {
   try {
-    const c = await ffGetConfig(g.id);
-    const med = await ffMediatorNext(g.id);
+    const [c, med] = await Promise.all([ffGetConfig(g.id), ffMediatorNext(g.id)]);
     const roleOlh = c?.olhinho_role_id ? g.roles.cache.get(c.olhinho_role_id) : null;
     const parent = c?.topic_channel_id
       ? g.channels.cache.get(c.topic_channel_id)
@@ -1073,21 +1072,12 @@ async function ffCriarThreadAposta(g, ids, bet) {
       type: ChannelType.PrivateThread,
       reason: 'Aposta FF',
     });
-    await sleep(300);
-
-    for (const uid of ids) await thread.members.add(uid).catch(() => {});
-
-    if (roleOlh) {
-      const members = [...roleOlh.members.values()].slice(0, 50);
-      for (const m of members) await thread.members.add(m.id).catch(() => {});
-    }
-
-    if (med) {
-      await thread.members.add(med.user_id).catch(() => {});
-      try {
-        await supabase.from('ff_mediator_queue').update({ status: 'busy' }).eq('id', med.id);
-      } catch {}
-    }
+    // Sem pausa artificial: convites de jogadores/staff em paralelo reduzem o tempo de criação.
+    const memberIds = new Set(ids.map(String));
+    if (roleOlh) for (const rm of [...roleOlh.members.values()].slice(0, 50)) memberIds.add(String(rm.id));
+    if (med) memberIds.add(String(med.user_id));
+    // Dispara convites sem bloquear criação do match e envio do embed.
+    const inviteMembers = Promise.all([...memberIds].map(uid => thread.members.add(uid).catch(() => null)));
 
     const { data: match } = await supabase.from('ff_matches').insert({
       guild_id: g.id, thread_id: thread.id, channel_id: parent.id,
@@ -1097,9 +1087,8 @@ async function ffCriarThreadAposta(g, ids, bet) {
     }).select().single();
 
     if (med) {
-      try {
-        await supabase.from('ff_mediator_queue').update({ current_match_id: match.id }).eq('id', med.id);
-      } catch {}
+      // Atualiza o estado sem fazer o embed esperar por round-trips extras.
+      void supabase.from('ff_mediator_queue').update({ status: 'busy', current_match_id: match.id }).eq('id', med.id).then(() => {}).catch(() => {});
     }
 
     const team = fmt ? `Times de **${fmt.teamSize}** • Total **${fmt.totalPlayers}**` : '';
@@ -1124,7 +1113,8 @@ async function ffCriarThreadAposta(g, ids, bet) {
       components: [row],
     });
 
-    await ffLog(g, 'thread', 'THREAD_CREATED', null, { match_id: match.id, players: ids });
+    void inviteMembers.catch(() => {});
+    void ffLog(g, 'thread', 'THREAD_CREATED', null, { match_id: match.id, players: ids }).catch(() => {});
   } catch (e) {
     console.error('[FF-THREAD]', e.message);
     await logError('ffCriarThreadAposta', e, null, g.id).catch(() => {});
@@ -1879,7 +1869,6 @@ client.on('interactionCreate', async (i) => {
             gelo_normal_players: JSON.stringify(gn),
           });
           await i.reply({ content: `✅ Adicionado (${target.length}/${FF_PULL_SIZE})`, flags: EPHEMERAL });
-          await ffUpdateBetMessage(guild, await ffGetBet(betId)).catch(() => {});
 
           if (target.length >= FF_PULL_SIZE) {
             const duo = [target[0].userId, target[1].userId];
@@ -1888,8 +1877,11 @@ client.on('interactionCreate', async (i) => {
               gelo_infinito_players: JSON.stringify(gi),
               gelo_normal_players: JSON.stringify(gn),
             });
-            await ffUpdateBetMessage(guild, await ffGetBet(betId)).catch(() => {});
+            // Não aguarda a atualização visual da fila: cria o tópico imediatamente.
+            void ffUpdateBetMessage(guild, await ffGetBet(betId)).catch(() => {});
             await ffCriarThreadAposta(guild, duo, bet).catch(e => console.error(e.message));
+          } else {
+            void ffUpdateBetMessage(guild, await ffGetBet(betId)).catch(() => {});
           }
         }
       } catch (err) {
@@ -1904,7 +1896,7 @@ client.on('interactionCreate', async (i) => {
     // ═══════════════════════════════════════════════════════════
     if (ns === 'ffm') {
       const matchId = rest[0];
-      const preAck = ['encerrar', 'escolher_venc'].includes(action);
+      const preAck = ['encerrar', 'escolher_venc', 'cancelar_confirm', 'finalizar'].includes(action);
       if (preAck && !i.deferred && !i.replied) await i.deferReply({ flags: EPHEMERAL });
       const releaseMatch = await ffLockMatch(matchId);
       try {
@@ -1931,7 +1923,8 @@ client.on('interactionCreate', async (i) => {
 
         const cfg = await ffGetConfig(guild.id);
         const payPP = ffCalcPlayerPay(m.value, cfg?.mediator_fee, cfg?.taxa_extra, cfg?.taxa_extra_ativo);
-        const hasPix = !!(cfg?.pix_key || cfg?.mp_access_token);
+        const mediatorPix = m.mediator_id ? await ffGetMediatorPix(guild.id, m.mediator_id) : null;
+        const hasPix = !!(mediatorPix?.pix_key || cfg?.pix_key || cfg?.mp_access_token);
 
         await i.channel.setName(ffThreadName('confirmed', m.value, players, matchId)).catch(() => {});
 
@@ -1974,27 +1967,33 @@ client.on('interactionCreate', async (i) => {
       // ─── ENCERRAR FILA ───
       if (action === 'encerrar') {
         if (!isP && !isS && !isMed) return i.editReply({ content: '❌ Você não tem permissão para encerrar esta fila.' });
-        await ffPatchMatch(matchId, { status: 'cancelled', finished_at: new Date().toISOString() });
-        if (m.mediator_id) {
-          await supabase.from('ff_mediator_queue').update({ status: 'waiting', current_match_id: null })
-            .eq('guild_id', guild.id).eq('user_id', m.mediator_id);
-        }
-        await i.channel.setName('❌ encerrada').catch(() => {});
-        await ffCleanupThread(i.channel);
-        await i.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Fila cancelada').setColor('#ff5555').setDescription(`Encerrada por <@${i.user.id}>`).setTimestamp()] });
-        setTimeout(() => i.channel.setArchived(true).catch(() => {}), 8000);
-        return i.editReply({ content: '✅ Fila cancelada.' });
+        await Promise.all([
+          ffPatchMatch(matchId, { status: 'cancelled', finished_at: new Date().toISOString() }),
+          m.mediator_id
+            ? supabase.from('ff_mediator_queue').update({ status: 'waiting', current_match_id: null }).eq('guild_id', guild.id).eq('user_id', m.mediator_id)
+            : Promise.resolve(),
+        ]);
+        await i.editReply({ content: '✅ Fila cancelada. Organizando o tópico em segundo plano…' }).catch(() => {});
+        const cancelledChannel = i.channel;
+        void (async () => {
+          await cancelledChannel.setName('❌ encerrada').catch(() => {});
+          await ffCleanupThread(cancelledChannel);
+          await cancelledChannel.send({ embeds: [new EmbedBuilder().setTitle('❌ Fila cancelada').setColor('#ff5555').setDescription(`Encerrada por <@${i.user.id}>`).setTimestamp()] }).catch(() => {});
+          setTimeout(() => cancelledChannel.setArchived(true).catch(() => {}), 8000);
+        })().catch(() => {});
+        return;
       }
 
       // ─── CONFIG PIX ───
       if (action === 'pix_config') {
         if (!isMed && !isDev && !isS) return i.reply({ content: '❌ Só mediador/staff.', flags: EPHEMERAL });
-        const cfg = await ffGetConfig(guild.id);
-        const m2 = new ModalBuilder().setCustomId(`ffm_modal:pix:${matchId}`).setTitle('Configurar PIX');
+        if (!m.mediator_id) return i.reply({ content: '❌ Esta partida não tem mediador atribuído.', flags: EPHEMERAL });
+        const existingPix = await ffGetMediatorPix(guild.id, m.mediator_id);
+        const m2 = new ModalBuilder().setCustomId(`ffm_modal:pix:${matchId}`).setTitle('Configurar PIX do mediador');
         m2.addComponents(
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('key').setLabel('Chave').setStyle(TextInputStyle.Short).setValue(cfg?.pix_key || '').setRequired(true)),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('name').setLabel('Nome').setStyle(TextInputStyle.Short).setValue(cfg?.pix_name || '').setRequired(true)),
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('city').setLabel('Cidade').setStyle(TextInputStyle.Short).setValue(cfg?.pix_city || '').setRequired(false)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('key').setLabel('Chave PIX').setStyle(TextInputStyle.Short).setValue(existingPix?.pix_key || '').setRequired(true)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('name').setLabel('Nome do titular').setStyle(TextInputStyle.Short).setValue(existingPix?.pix_name || '').setRequired(true)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('city').setLabel('Cidade').setStyle(TextInputStyle.Short).setValue(existingPix?.pix_city || '').setRequired(false)),
         );
         return i.showModal(m2);
       }
@@ -2028,6 +2027,7 @@ client.on('interactionCreate', async (i) => {
           );
 
         const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`ffm:copy_pix:${matchId}`).setLabel('Copiar PIX').setEmoji('📋').setStyle(ButtonStyle.Primary),
           new ButtonBuilder().setCustomId(`ffm:confirmar_pag:${matchId}`).setLabel('Confirmar Pagamento').setEmoji('✅').setStyle(ButtonStyle.Success),
           new ButtonBuilder().setCustomId(`ffm:cancelar:${matchId}`).setLabel('Cancelar').setEmoji('❌').setStyle(ButtonStyle.Danger),
         );
@@ -2038,6 +2038,16 @@ client.on('interactionCreate', async (i) => {
           components: [row],
         });
         return i.reply({ content: '✅ PIX liberado.', flags: EPHEMERAL });
+      }
+
+      // ─── COPIAR PIX DO MEDIADOR (resposta efêmera) ───
+      if (action === 'copy_pix') {
+        const pix = m.mediator_id ? await ffGetMediatorPix(guild.id, m.mediator_id) : null;
+        const cfg = await ffGetConfig(guild.id);
+        const source = pix?.pix_key ? pix : cfg;
+        if (!source?.pix_key) return i.reply({ content: '❌ O mediador ainda não configurou uma chave PIX.', flags: EPHEMERAL });
+        const payPP = ffCalcPlayerPay(m.value, cfg?.mediator_fee, cfg?.taxa_extra, cfg?.taxa_extra_ativo);
+        return i.reply({ content: `PIX do mediador <@${m.mediator_id}>:\n\`\`\`${String(source.pix_key).replace(/`/g, '')}\`\`\`\nTitular: **${source.pix_name || '—'}**\nValor por jogador: **R$ ${payPP.toFixed(2)}**\nConfira destinatário e valor no aplicativo do banco.`, flags: EPHEMERAL });
       }
 
       // ─── CONFIRMAR PAGAMENTO ───
@@ -2056,16 +2066,18 @@ client.on('interactionCreate', async (i) => {
             { name: '📌 Etapa', value: '**4/4** • Partida em andamento', inline: false },
           );
 
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`ffm:enviar_sala:${matchId}`).setLabel('Enviar Sala').setEmoji('🎮').setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId(`ffm:escolher_venc:${matchId}`).setLabel('Escolher Vencedor').setEmoji('🏆').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId(`ffm:cancelar:${matchId}`).setLabel('Cancelar').setEmoji('❌').setStyle(ButtonStyle.Danger),
-        );
-
+        const actionMenu = new StringSelectMenuBuilder()
+          .setCustomId(`ffm:manage:${matchId}`)
+          .setPlaceholder('⚙️ Gerenciar partida')
+          .addOptions(
+            { label: 'Enviar sala', value: 'enviar_sala', emoji: '🎮', description: 'Enviar ID e senha da sala' },
+            { label: 'Escolher vencedor', value: 'escolher_venc', emoji: '🏆', description: 'Selecionar o vencedor da partida' },
+            { label: 'Cancelar partida', value: 'cancelar', emoji: '❌', description: 'Cancelar e liberar o mediador' },
+          );
         await i.channel.send({
           content: `${players.map(p => `<@${p}>`).join(' ')} — Pagamento confirmado!`,
           embeds: [e],
-          components: [row],
+          components: [new ActionRowBuilder().addComponents(actionMenu)],
         });
         return i.reply({ content: '✅ Pagamento confirmado.', flags: EPHEMERAL });
       }
@@ -2082,6 +2094,53 @@ client.on('interactionCreate', async (i) => {
           embeds: [new EmbedBuilder().setTitle('🏆 Escolher vencedor').setColor('#f1c40f')],
           components: [new ActionRowBuilder().addComponents(menu)],
         });
+      }
+
+      // ─── FINALIZAR PARTIDA (após selecionar vencedor) ───
+      if (action === 'finalizar') {
+        if (!isMed && !isS && !isDev) return i.editReply({ content: '❌ Apenas o mediador ou staff pode finalizar.' });
+        if (m.status === 'finished') return i.editReply({ content: '⚠️ Esta partida já foi finalizada.' });
+        const winner = m.winner;
+        if (!winner || !players.includes(winner)) return i.editReply({ content: '⚠️ Escolha o vencedor no menu antes de finalizar.' });
+        const prize = Number(m.value || 0) * 2;
+        const cfg = await ffGetConfig(guild.id);
+        const fee = (Number(cfg?.mediator_fee) || 0) * players.length;
+        const coins = Number(cfg?.coin_prize) || 1;
+        await ffPatchMatch(matchId, { status: 'finished', winner, prize_amount: prize, mediator_earnings: fee, finished_at: new Date().toISOString() });
+        try {
+          const { data: p } = await supabase.from('ff_players').select('coins, wins').eq('guild_id', guild.id).eq('user_id', winner).maybeSingle();
+          if (p) await supabase.from('ff_players').update({ coins: Number(p.coins || 0) + coins, wins: Number(p.wins || 0) + 1 }).eq('guild_id', guild.id).eq('user_id', winner);
+          else await supabase.from('ff_players').insert({ guild_id: guild.id, user_id: winner, coins, wins: 1, losses: 0 });
+          await logCoins(guild, winner, coins, `Vitória #${matchId}`, m.mediator_id);
+        } catch (e) { console.error('[FINALIZE-WINNER]', e.message); }
+        try {
+          for (const loser of players.filter(pid => pid !== winner)) {
+            const { data: lp } = await supabase.from('ff_players').select('losses').eq('guild_id', guild.id).eq('user_id', loser).maybeSingle();
+            if (lp) await supabase.from('ff_players').update({ losses: Number(lp.losses || 0) + 1 }).eq('guild_id', guild.id).eq('user_id', loser);
+            else await supabase.from('ff_players').insert({ guild_id: guild.id, user_id: loser, coins: 0, wins: 0, losses: 1 });
+          }
+        } catch (e) { console.error('[FINALIZE-LOSSES]', e.message); }
+        try {
+          if (m.mediator_id) {
+            await supabase.from('ff_mediator_earnings').insert({ guild_id: guild.id, mediator_id: m.mediator_id, match_id: matchId, amount: fee });
+            const { data: med } = await supabase.from('ff_mediator_queue').select('*').eq('guild_id', guild.id).eq('user_id', m.mediator_id).maybeSingle();
+            if (med) await supabase.from('ff_mediator_queue').update({ status: 'waiting', current_match_id: null, earnings_total: Number(med.earnings_total || 0) + fee, matches_total: Number(med.matches_total || 0) + 1 }).eq('id', med.id);
+          }
+        } catch (e) { console.error('[FINALIZE-MEDIATOR]', e.message); }
+        await i.editReply({ content: `🏁 Partida finalizada! Vencedor: <@${winner}>.` }).catch(() => {});
+        const ch = i.channel;
+        void (async () => {
+          await ch.setName(ffThreadName('finished', m.value, players, matchId)).catch(() => {});
+          await ffCleanupThread(ch);
+          const e = new EmbedBuilder().setTitle('🏆 PARTIDA FINALIZADA').setColor('#f1c40f').setDescription(`**Vencedor:** <@${winner}>\n**Prêmio:** R$ ${prize.toFixed(2)}`).addFields(
+            { name: '💰 Prêmio', value: `R$ ${prize.toFixed(2)}`, inline: true },
+            { name: '💎 Coins', value: `${coins}`, inline: true },
+            { name: '💵 Taxa', value: `R$ ${fee.toFixed(2)}`, inline: true },
+          ).setTimestamp();
+          await ch.send({ embeds: [e] }).catch(() => {});
+          setTimeout(() => ch.setArchived(true).catch(() => {}), 15000);
+        })().catch(() => {});
+        return;
       }
 
       // ─── ENVIAR SALA ───
@@ -2108,16 +2167,22 @@ client.on('interactionCreate', async (i) => {
       }
 
       if (action === 'cancelar_confirm') {
-        await ffPatchMatch(matchId, { status: 'cancelled', finished_at: new Date().toISOString() });
-        if (m.mediator_id) {
-          await supabase.from('ff_mediator_queue').update({ status: 'waiting', current_match_id: null })
-            .eq('guild_id', guild.id).eq('user_id', m.mediator_id);
-        }
-        await i.channel.setName('❌ cancelado').catch(() => {});
-        await ffCleanupThread(i.channel);
-        await i.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Match cancelado').setColor('#ff5555').setTimestamp()] });
-        setTimeout(() => i.channel.setArchived(true).catch(() => {}), 8000);
-        return i.reply({ content: '✅ Cancelado.', flags: EPHEMERAL });
+        await Promise.all([
+          ffPatchMatch(matchId, { status: 'cancelled', finished_at: new Date().toISOString() }),
+          m.mediator_id
+            ? supabase.from('ff_mediator_queue').update({ status: 'waiting', current_match_id: null }).eq('guild_id', guild.id).eq('user_id', m.mediator_id)
+            : Promise.resolve(),
+        ]);
+        if (i.deferred || i.replied) await i.editReply({ content: '✅ Partida cancelada. Organizando o tópico em segundo plano…' }).catch(() => {});
+        else await i.reply({ content: '✅ Partida cancelada. Organizando o tópico em segundo plano…', flags: EPHEMERAL }).catch(() => {});
+        const cancelledChannel = i.channel;
+        void (async () => {
+          await cancelledChannel.setName('❌ cancelado').catch(() => {});
+          await ffCleanupThread(cancelledChannel);
+          await cancelledChannel.send({ embeds: [new EmbedBuilder().setTitle('❌ Match cancelado').setColor('#ff5555').setTimestamp()] }).catch(() => {});
+          setTimeout(() => cancelledChannel.setArchived(true).catch(() => {}), 8000);
+        })().catch(() => {});
+        return;
       }
 
       if (action === 'cancelar_abort') return i.reply({ content: '✅ Cancelamento abortado.', flags: EPHEMERAL });
@@ -2730,10 +2795,12 @@ client.on('interactionCreate', async (i) => {
       const key = i.fields.getTextInputValue('key').trim();
       const name = i.fields.getTextInputValue('name').trim();
       const city = i.fields.getTextInputValue('city').trim();
-      await ffPatchConfig(guild.id, { pix_key: key, pix_name: name, pix_city: city });
-      await i.reply({ content: '✅ PIX salvo.', flags: EPHEMERAL });
-
       const m = await ffGetMatch(matchId);
+      if (!m?.mediator_id) return i.reply({ content: '❌ Partida sem mediador atribuído; não foi possível salvar o PIX.', flags: EPHEMERAL });
+      const savedPix = await ffSetMediatorPix(guild.id, m.mediator_id, key, name, city, 'aleatoria');
+      if (!savedPix) return i.reply({ content: '❌ Falha ao salvar o PIX individual do mediador.', flags: EPHEMERAL });
+      await i.reply({ content: `✅ PIX salvo para <@${m.mediator_id}>.`, flags: EPHEMERAL });
+
       if (m) {
         await ffCleanupThread(i.channel);
         const players = parseJson(m.players);
@@ -3005,6 +3072,40 @@ client.on('interactionCreate', async (i) => {
     const guild = i.guild;
     const [ns, action] = cid.split(':');
 
+    // ─── MATCH MANAGEMENT SELECT MENU ───
+    if (ns === 'ffm' && action === 'manage') {
+      const matchId = cid.split(':')[2];
+      const choice = value;
+      const m = await ffGetMatch(matchId);
+      if (!m) return i.reply({ content: '❌ Partida não encontrada.', flags: EPHEMERAL });
+      const isStaff = await isAdmin(i.user, guild) || isDeveloper(i.user.id);
+      if (!isStaff && m.mediator_id !== i.user.id) return i.reply({ content: '❌ Apenas o mediador ou a staff pode gerenciar a partida.', flags: EPHEMERAL });
+      if (choice === 'enviar_sala') {
+        const modal = new ModalBuilder().setCustomId(`ffm_modal:sala:${matchId}`).setTitle('Enviar sala');
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('room_id').setLabel('ID da sala').setStyle(TextInputStyle.Short).setRequired(true)),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('room_pass').setLabel('Senha').setStyle(TextInputStyle.Short).setRequired(true)),
+        );
+        return i.showModal(modal);
+      }
+      if (choice === 'escolher_venc') {
+        const players = parseJson(m.players);
+        const menu = new StringSelectMenuBuilder().setCustomId(`ffm:pick_winner:${matchId}`).setPlaceholder('🏆 Selecione o vencedor');
+        for (const pid of players) {
+          const u = await client.users.fetch(pid).catch(() => null);
+          menu.addOptions({ label: (u?.username || pid).slice(0, 100), value: pid, emoji: '🏆' });
+        }
+        return i.reply({ content: 'Escolha o vencedor. A partida só será encerrada ao pressionar **Finalizar partida**.', components: [new ActionRowBuilder().addComponents(menu)], flags: EPHEMERAL });
+      }
+      if (choice === 'cancelar') {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`ffm:cancelar_confirm:${matchId}`).setLabel('Sim, cancelar').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId(`ffm:cancelar_abort:${matchId}`).setLabel('Não').setStyle(ButtonStyle.Secondary),
+        );
+        return i.reply({ content: '⚠️ Confirmar cancelamento desta partida?', components: [row], flags: EPHEMERAL });
+      }
+    }
+
     // ─── WINNER PICK ───
     if (ns === 'ffm' && action === 'pick_winner') {
       // Acknowledge immediately: DB queries and profile updates can exceed Discord's 3s deadline.
@@ -3020,6 +3121,25 @@ client.on('interactionCreate', async (i) => {
       if (m.status === 'finished') return i.followUp({ content: 'Esta partida já foi finalizada; o prêmio não será creditado novamente.', flags: EPHEMERAL });
       const winner = value, players = parseJson(m.players);
       if (!Array.isArray(players) || !players.includes(winner)) return i.followUp({ content: 'O usuário escolhido não pertence a esta partida.', flags: EPHEMERAL });
+      await ffPatchMatch(matchId, { winner });
+      const manager = new StringSelectMenuBuilder().setCustomId(`ffm:manage:${matchId}`).setPlaceholder('⚙️ Gerenciar partida').addOptions(
+        { label: 'Enviar sala', value: 'enviar_sala', emoji: '🎮' },
+        { label: 'Escolher outro vencedor', value: 'escolher_venc', emoji: '🏆' },
+        { label: 'Cancelar partida', value: 'cancelar', emoji: '❌' },
+      );
+      const controls = [new ActionRowBuilder().addComponents(manager), new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`ffm:finalizar:${matchId}`).setLabel('Finalizar partida').setEmoji('🏁').setStyle(ButtonStyle.Success),
+      )];
+      // O seletor é efêmero; atualiza também a mensagem de controles pública dentro do tópico.
+      const recentMessages = await i.channel.messages.fetch({ limit: 25 }).catch(() => null);
+      const publicControls = recentMessages?.find(msg => msg.author?.id === client.user.id &&
+        msg.components?.some(row => row.components?.some(component => component.customId === `ffm:manage:${matchId}`)));
+      if (publicControls) {
+        await publicControls.edit({ content: `🏆 Vencedor selecionado: <@${winner}>. Confira e pressione **Finalizar partida** para concluir.`, components: controls }).catch(() => {});
+      }
+      await i.message.edit({ content: `🏆 Vencedor selecionado: <@${winner}>. Use **Finalizar partida** na mensagem da partida para concluir.`, components: [] }).catch(() => {});
+      await i.followUp({ content: `🏆 Vencedor selecionado: <@${winner}>. A partida ainda não foi finalizada.`, flags: EPHEMERAL });
+      return;
       const prize = Number(m.value || 0) * 2;
       const cfg = await ffGetConfig(guild.id);
       const fee = (Number(cfg?.mediator_fee) || 0) * players.length;
