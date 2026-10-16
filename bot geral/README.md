@@ -1,125 +1,48 @@
-# Frio Bot
+# FrioBot
 
-Bot Discord completo para servidores de Free Fire, apostas, tickets, loja, streamers e automações.
-Versão **v6.8.0** (não foi alterado nesta atualização — apenas integração de token com o painel).
+Bot de Discord para servidores de apostas Free Fire, lojas e comunidades (tickets, filas, PIX, streamers, roleta).
 
----
-
-## Requisitos
-
-- **Node.js 22.x**
-- **npm 10+**
-- Conta no **Supabase** (mesmo banco do painel)
-- Bot no **Discord Developer Portal**
-- (Opcional) **Mercado Pago** para pagamentos automáticos
-- (Opcional) **Render API** para métricas
-
----
-
-## Instalação
-
+## Rodar localmente
 ```bash
-git clone https://github.com/seu-usuario/frio-bot.git
-cd frio-bot
+cp .env.example .env     # preencha os valores (o .env nunca vai pro Git)
 npm install
-cp .env.example .env
-# edite o .env
 npm start
 ```
+Requer Node 22.
 
----
+## Variáveis de ambiente
+Todas estão documentadas em [`.env.example`](.env.example). Obrigatórias: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `SUPABASE_URL`, `SUPABASE_KEY`.
 
-## Configuração (.env)
+## Deploy (Render ou similar)
+Cadastre cada variável no painel do host (não use arquivo `.env` em produção). Comando de start: `npm start`.
 
-```env
-# Discord
-DISCORD_TOKEN=seu-bot-token
-DISCORD_CLIENT_ID=123456789012345678
-DISCORD_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxx
-OWNER_ID=seu-id
-REDIRECT_URI=https://frio-bot.onrender.com/callback
+## Comandos (9)
+| Comando | Subcomandos |
+|---|---|
+| `/info` | ping, servidor, usuario, avatar, ajuda, status |
+| `/perfil` | ver, aniversario, resgatar |
+| `/comunidade` | sugestao, reportar, ia, versiculo (aleatorio/config/off) |
+| `/musica` | tocar, pausar, pular, parar, fila, tocando, loop, volume |
+| `/roleta` | painel, girar, ver, giros, coins |
+| `/hub` · `/admin` · `/dev` | painéis |
+| `/config` | ticket, streamer, painel (ticket/streamer) |
 
-# Supabase (mesmo banco do painel)
-SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
-SUPABASE_KEY=service_role_key
+### Música por prefixo `m!` (qualquer membro, maiúsculas ou minúsculas)
+`m!p <nome/link>` · `m!pause` · `m!next` · `m!stop` · `m!queue` · `m!np` · `m!loop` · `m!vol <0-200>` · `m!remove <pos>` · `m!clear` · `m!help`
 
-# Integração com o painel
-PANEL_API_TOKEN=<MESMO TOKEN DO PAINEL>
-JWT_SECRET=<secret aleatório>
-PANEL_URL=https://painel.seudominio.com
+## Loja
+Pagamentos do Mercado Pago são conferidos sozinhos a cada 30s e o estoque é entregue por DM. PIX estático continua exigindo aprovação da staff.
 
-# Portas
-PORT=3000
-WEBHOOK_PORT=3000
+## Segurança
+Leia [`SECURITY.md`](SECURITY.md) antes do primeiro commit. Resumo: sem segredos no código, hook de pre-commit ativo, `ENABLE_DEV_EVAL=false`.
 
-# Mercado Pago (opcional)
-MP_ACCESS_TOKEN=APP_USR-xxxx
-MP_WEBHOOK_URL=https://frio-bot.onrender.com/api/mp/webhook
+## Scripts
+| Comando | O que faz |
+|---|---|
+| `npm start` | inicia o bot |
+| `npm run check` | confere a sintaxe |
+| `npm run scan:secrets` | procura segredos nos arquivos |
+| `npm run audit:prod` | audita dependências de produção |
 
-# Render API (opcional)
-RENDER_API_KEY=rnd_xxxx
-
-# Verificação
-VERIFY_SECRET=<secret aleatório>
-```
-
----
-
-## ⚠️ Importante
-
-**O `PANEL_API_TOKEN` deve ser idêntico ao do painel.**
-Sem isso, o bot rejeita todas as chamadas do painel com HTTP 401.
-
----
-
-## Execução
-
-```bash
-npm start          # produção
-node teste.js      # testes
-node teste-ws.js   # teste de websocket/gateway
-```
-
----
-
-## Health check
-
-```bash
-curl http://localhost:3000/health
-```
-
----
-
-## Integração com o Painel
-
-O bot expõe uma API interna em `/api/bot/*` protegida por Bearer token:
-
-- `GET /api/bot/health` — status
-- `POST /api/bot/audit/log` — recebe logs do painel
-- `POST /api/bot/guilds/sync` — sincroniza servidores
-- `POST /api/bot/kill-switch` — ativa/desativa globalmente
-- `POST /api/bot/maintenance` — manutenção global
-- `POST /api/bot/force-premium` — aplica premium
-- `POST /api/bot/broadcast` — envia aviso para todos
-- `POST /api/bot/guild/:id/leave` — sai do servidor
-- `POST /api/bot/guild/:id/rename` — renomeia
-- `POST /api/bot/guild/:id/nuke` — apaga canais/cargos
-- `POST /api/bot/guild/:id/refresh` — atualiza dados
-- `GET /api/bot/guild/:id/stats` — estatísticas
-- `POST /api/bot/notify/:userId` — manda DM
-
-Todas exigem `Authorization: Bearer $PANEL_API_TOKEN`.
-
----
-
-## Estrutura
-
-- `index.js` — arquivo principal (12 partes, ~9k linhas)
-- `emojis.js` — emojis customizados
-- `package.json` — dependências
-
----
-
-## Licença
-
-MIT
+## Atualização de recursos (16/10/2026)
+Antes de usar os novos campos da loja e do hub de apostas, execute o SQL de `migrations/2026-10-16-frio-features.sql` no SQL Editor do Supabase. Os backups usam a tabela `guild_backups` existente. A restauração é best-effort: permissões e itens recriáveis são restaurados, mas IDs originais de canais/cargos não podem ser preservados e o Discord não permite reconstruir autoria original de mensagens.
