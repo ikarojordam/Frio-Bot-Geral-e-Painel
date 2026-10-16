@@ -1,32 +1,27 @@
 {
   "name": "frio-apostas",
-  "version": "1.7.0",
-  "description": "FrioBot — bot Discord com Anti-Raid configurável e execução multibot isolada",
+  "version": "2.0.0",
+  "description": "BACK BOT — Sistema de apostas FF com painel de automações (multibot/frota)",
   "main": "apostas.js",
-  "engines": {
-    "node": "22.x"
-  },
+  "engines": { "node": "22.x" },
   "scripts": {
     "start": "node apostas.js",
-    "start:fleet": "pm2 start ecosystem.config.cjs",
-    "check": "node --check apostas.js && node --check anti-raid-system.js && node --check ecosystem.config.cjs"
+    "fleet": "node fleet.js",
+    "test": "node --test --test-force-exit tests/*.test.js",
+    "check": "node --check apostas.js && node --check fleet.js && node --check bot-runtime.js && node --check anti-raid-system.js",
+    "fleet:cli": "node scripts/fleet-cli.js",
+    "fleet:ecosystem": "node scripts/generate-ecosystem.js"
   },
   "dependencies": {
     "@discordjs/voice": "0.18.0",
     "@supabase/supabase-js": "^2.45.4",
     "discord.js": "14.16.3",
     "dotenv": "^16.4.5",
-    "express": "^4.21.1",
     "play-dl": "^1.9.7",
     "qrcode": "^1.5.3",
     "ws": "8.18.0"
   },
-  "keywords": [
-    "discord",
-    "bot",
-    "free-fire",
-    "apostas"
-  ],
+  "keywords": ["discord", "bot", "free-fire", "apostas", "multibot"],
   "author": "FrioBot",
   "license": "UNLICENSED",
   "private": true

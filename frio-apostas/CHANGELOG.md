@@ -1,3 +1,21 @@
+# FrioBot v2.0.0 — Frota multibot
+
+## Novidades
+- **Frota**: `fleet.js` hospeda dezenas de bots por processo (registro `fleet_bots`, tokens cifrados, leases, claims de servidor, escalonamento de login, reconciliação a quente, status em `fleet_bot_status`). `apostas.js` segue como modo de 1 bot.
+- `bot-runtime.js`: o código do bot virou uma fábrica `createBot(cfg, deps)`; cada instância tem client, caches, timers, marca e features próprios.
+- Anti-Raid: config por (bot, servidor) no Supabase; anti-nuke por `guildAuditLogEntryCreate` (canais, cargos, bans/kicks em massa, webhooks com remoção, permissões perigosas no @everyone); whitelist por ID fora do cache; painel com limites de conta e anti-nuke; varredura de memória; import do `antiraid-config.json` antigo via `addConfigsFromLegacy`.
+- HTTP sem Express: `/livez`, `/readyz` e `/health` (503 quando offline), `/bots/:id/health`, `/api/bots/:id/status`, `/api/fleet/status`, rate limit.
+- **/dev → Sistema → 🪪 Perfil**: edita nome de usuário, bio, avatar, banner, presença (jogando/assistindo/ouvindo/competindo/transmitindo + status), apelido (neste servidor ou em todos), marca (nome/emoji nos embeds) e pronomes (interno). Tudo é salvo por bot e sobrevive a reinícios.
+- CLI `scripts/fleet-cli.js`, gerador PM2 `scripts/generate-ecosystem.js`, 20 testes (`npm test`).
+
+## Correções
+Veja `docs/NOTAS_DE_SEGURANCA.md` (bypass de token no status, sandbox, cargo dev, kill switch global, queries sem filtro de servidor, roleta em arquivo local, `Math.random` na roleta, idempotência do PIX/MP, registro de comandos a cada boot).
+
+## Atenção ao atualizar
+- Rode `sql/FLEET_MIGRATION.sql`. Kill switch/manutenção/roleta deixam de usar as tabelas/arquivos antigos (estado reinicia desligado).
+- Mudanças de comportamento: sandbox off, anti-nuke vigia admins, anti-webhook remove webhooks de não confiáveis, intent GuildModeration (não privilegiada) quando o Anti-Raid está ligado.
+- Sem `npm install` offline não foi possível gerar `package-lock.json`: rode `npm install && npm audit` e versione o lock.
+
 # BACK BOT v1.4.0
 
 ## Novidades
@@ -36,19 +54,3 @@ Esse aviso não revoga licenças de terceiros já aplicáveis, não garante por 
 ## v1.5.0
 - Painel Anti-Raid em embed com botões, menus e modal para configuração interativa.
 - Suporte a arquivo de ambiente selecionável por processo (`ENV_FILE`) e exemplo PM2 para múltiplos bots com tokens/portas distintos.
-
-
-## v1.6.0 — 2026-10-15
-- Estado local isolado por BOT_INSTANCE_ID.
-- Endpoint /readyz para readiness real do Discord.
-- Validação de segredo do painel com comparação de comprimento constante.
-- Configuração PM2 com BOT_COUNT para gerar uma frota de processos.
-- Documentação de escala e limites revisada.
-
-
-## v1.7.0 — Personalização global e acesso Anti-Raid
-- Adicionada a área **Personalizar Bot** ao `/dev`.
-- Nome e atividade persistidos por instância; tipos PLAYING, WATCHING, LISTENING e COMPETING.
-- Avatar pode ser atualizado por URL HTTPS/HTTP.
-- URL do banner fica salva como referência; alteração do banner do perfil continua manual pelo Developer Portal devido à limitação da API do bot.
-- O acesso `.antiraid` e seus componentes agora reconhecem os desenvolvedores autorizados, incluindo `1535751259347222538`.

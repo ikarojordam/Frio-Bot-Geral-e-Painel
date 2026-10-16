@@ -1,59 +1,34 @@
-# FrioBot Anti-Raid Multibot — v1.7.0
+# Frota multibot — FrioBot v2.0.0
 
-## O que esta versão melhora
-- Isola arquivos locais por identidade (`BOT_INSTANCE_ID`): configuração do Anti-Raid e roleta não colidem entre processos no mesmo disco.
-- Adiciona `/readyz` (retorna HTTP 503 se o Gateway Discord ainda não estiver pronto); `/health` continua sendo liveness.
-- Compara o segredo `PANEL_API_TOKEN` com validação de comprimento antes de `timingSafeEqual`.
-- Configuração PM2 escalável por `BOT_COUNT`, com um processo e uma porta por bot.
-- Mantém comandos agrupados, incluindo `/config ticket`, `/config streamer` e `/config boasvindas`.
-- Comando `.antiraid` abre o painel configurável do Anti-Raid (módulos, limites, ações e logs).
-- `/dev` agora tem a função **Personalizar Bot** para alterar nome, atividade (jogando/assistindo/ouvindo/competindo) e avatar por URL.
-- A personalização é global para todos os servidores atendidos pela mesma instância e fica em `data/<BOT_INSTANCE_ID>/bot-branding.json`.
-- Desenvolvedores autorizados, incluindo o ID `1535751259347222538`, podem abrir e operar `.antiraid` sem precisar de Administrador no servidor.
+Um processo (worker) hospeda vários bots; cada bot é uma **aplicação/token Discord diferente**, com marca, presença, recursos e dados próprios.
+`npm start` continua funcionando como antes (1 bot via `.env`). Para a frota use `npm run fleet`.
 
-## Requisitos
-- Node.js 22.x.
-- Uma aplicação/token Discord distinto por bot.
-- Credenciais de banco configuradas em cada processo.
-- PM2 para gerenciar vários processos no mesmo host.
+## O que cada bot tem de próprio ("cada um diferente")
+Linha em `fleet_bots`: token (cifrado), nome, org/emoji/cor, presença (texto/tipo/status), canal de logs, dono, `features`
+(`antiraid, auto_messages, message_content, guild_members, heartbeat_log, sync_username, dev_role, owner_is_developer, dev_sandbox`).
+Dados por servidor ficam no Supabase por `guild_id`; kill switch, manutenção, roleta e Anti-Raid ficam por **bot**.
+Regra do modelo: **1 servidor = 1 bot da frota** (claims). Se outro bot da frota já atende o servidor, o segundo ignora os eventos dele.
 
-## Executar um bot
-1. `npm install`
-2. Copie `.env.bot1.example` para `.env.bot1` e preencha credenciais reais.
-3. `npm start`
+## Subir (passo a passo)
+1. Supabase > SQL Editor: execute `sql/FLEET_MIGRATION.sql` (e `sql/MIGRACAO_AUTO_MENSAGENS.sql` se ainda não rodou).
+2. `node scripts/fleet-cli.js gen-key` → guarde em `FLEET_MASTER_KEY` (variável do host; **sem ela os tokens são irrecuperáveis**). `gen-secret` → `FLEET_ADMIN_TOKEN`.
+3. Cadastre bots: `echo "$TOKEN" | node scripts/fleet-cli.js add cliente-001 --name "Meu Bot" --client_id 123 --panel-token auto`
+   ou em massa: `node scripts/fleet-cli.js import bots.json` (lista `[{"id","name","token","client_id",...}]`; apague o JSON depois).
+4. `node scripts/generate-ecosystem.js 10` (10 workers ⇒ ~50 bots cada para 500) e `pm2 start ecosystem.config.cjs`.
+5. Cada bot precisa, no Developer Portal, dos intents **Server Members** e **Message Content** (ou desligue com `set <id> feature.message_content=false feature.guild_members=false`).
+6. Monitoramento: `GET /livez` (processo), `/readyz` (200 só com ≥80% dos bots online), `/bots/:id/health`, `/api/fleet/status` (Bearer `FLEET_ADMIN_TOKEN`); tabela `fleet_bot_status`; `fleet-cli list`.
 
-## Executar vários bots com PM2
-1. Crie `.env.bot1`, `.env.bot2`, ... para cada identidade.
-2. Garanta que cada arquivo tenha `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `SUPABASE_URL`, `SUPABASE_KEY` e `PANEL_API_TOKEN` conforme necessário. Tokens devem ser diferentes; os segredos devem ser fortes.
-3. No terminal, defina a quantidade e inicie:
-   - Linux/macOS: `BOT_COUNT=10 pm2 start ecosystem.config.cjs`
-   - PowerShell: `$env:BOT_COUNT=10; pm2 start ecosystem.config.cjs`
-4. Confira `pm2 status` e `pm2 logs`.
-5. Para reiniciar após reboot, configure `pm2 startup` e `pm2 save`.
+## Como funciona (garantias)
+- **1 token = 1 processo**: lease atômico no banco (`fleet_acquire_leases`, TTL 60s, renovação em lote a cada 20s). Lease perdido ⇒ o bot cai.
+- **Escalonamento**: login com concorrência `START_CONCURRENCY` (3) e espaçamento `START_SPACING_MS` (1500). Erro de token/intents não derruba os outros e só é re-tentado a cada 30 min.
+- **Quente x frio**: mudar nome/presença/logs/dono aplica sem reconectar; mudar token/features reinicia só aquele bot. O registro é relido a cada 60s.
+- **Slash commands**: só são re-registrados quando o hash muda (`.registrar` força).
+- **Segredos**: AES-256-GCM amarrado ao id do bot; tokens nunca vão para logs (redação automática); `FLEET_MASTER_KEY` é removida do `process.env` após o boot.
 
-`BOT_COUNT` aceita de 1 a 500. Isso apenas gera processos; **não garante** que a hospedagem suporte essa carga. Comece com 1, 5, 10, 20 e aumente só após medir CPU, RAM, conexões, latência, reconnects e rate limits.
+## Capacidade — seja realista
+Não foi possível testar com Discord/Supabase reais nem 500 tokens. Valide em degraus (1 → 10 → 50 → 100 → 500) observando RAM (`/api/fleet/status`), `event_loop_lag_ms`, reconnects e rate limits.
+Ordem de grandeza (estimativa, não medição): 20–60 MB por bot conectado ⇒ 500 bots ≈ 10–30 GB no total, por isso o padrão é ~10 workers de ~50 bots (`--max-old-space-size` no PM2). Um host de 4 GB comporta algumas dezenas, não 500.
+Cada aplicação Discord tem limites próprios (ex.: 1000 logins/dia por token). Se "500 bots" na verdade for **um** bot em 500 servidores, o caminho é sharding, não esta frota.
 
-## Portas
-Cada processo usa `BASE_PORT + índice`, começando em 3001 por padrão. Se a hospedagem só expõe uma porta HTTP por serviço, rode cada bot como serviço separado e configure a porta da plataforma. Não tente executar vários processos com a mesma porta no mesmo host.
-
-## Dados e escalabilidade
-`STATE_ROOT/<BOT_INSTANCE_ID>/` contém dados locais da roleta e Anti-Raid. O diretório precisa de volume persistente para sobreviver a redeploys. O isolamento evita colisões locais, mas não é armazenamento distribuído. Em hosts diferentes, os arquivos não são compartilhados.
-
-A personalização local e as configurações locais precisam de volume persistente no Render para sobreviver a redeploys; sem volume, o arquivo pode ser perdido. O banner de perfil do bot não pode ser alterado via API com o token do bot nesta integração: salve a URL no painel e aplique o banner manualmente no Discord Developer Portal. Para alta escala, as configurações e contadores Anti-Raid ainda precisam migrar para banco/Redis central com operações atômicas. Se vários bots atenderem o mesmo servidor, defina um bot responsável por cada função para evitar respostas duplicadas. Não execute o mesmo token em várias hospedagens para balancear o Gateway. Uma frota de 100 bots diferentes exige 100 aplicações/tokens distintos e respeita os limites do Discord e da hospedagem.
-
-## Comandos de configuração
-- `/config ticket` — configurar painéis e tipos de ticket.
-- `/config streamer` — abrir a configuração de streamers.
-- `/config boasvindas` — configurar boas-vindas e convites.
-- `/solicitar painel ticket` — publicar painel de tickets.
-- `/solicitar painel streamer` — publicar painel de streamers.
-- `.antiraid` — painel Anti-Raid; disponível ao dono, administradores e desenvolvedores autorizados.
-- `/apostas painel` — painel de Free Fire.
-- `.registrar` — registrar comandos novamente (desenvolvedor).
-
-## Segurança operacional
-- Nunca publique `.env.botN`, tokens Discord ou chave `service_role` do Supabase.
-- Use `SUPABASE_KEY` de servidor apenas no backend.
-- Faça backup antes de atualizar.
-- Execute `npm run check` antes de publicar.
-- A validação estática não substitui testes em servidor Discord isolado; não há benchmark certificado para 100+ bots.
+## Rotação / emergência
+`rotate-token <id>`, `reencrypt` (após trocar a chave mestra: ponha a antiga em `FLEET_MASTER_KEY_PREVIOUS`), `release-lease <id>` (só se o worker antigo morreu), `release-guild <guildId>`.

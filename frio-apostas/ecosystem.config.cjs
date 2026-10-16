@@ -1,31 +1,175 @@
-'use strict';
-// Fleet configurável: BOT_COUNT=100 pm2 start ecosystem.config.cjs
-// Cada processo exige .env.botN com token e credenciais próprios.
-// Não use o mesmo DISCORD_TOKEN em processos diferentes.
-const path = require('node:path');
-const count = Math.max(1, Math.min(500, Number.parseInt(process.env.BOT_COUNT || '2', 10) || 2));
-const basePort = Math.max(1, Number.parseInt(process.env.BASE_PORT || '3001', 10) || 3001);
-const root = __dirname;
-
+// Gerado por scripts/generate-ecosystem.js — 10 worker(s). Segredos ficam no .env / variáveis do host.
 module.exports = {
-  apps: Array.from({ length: count }, (_, index) => {
-    const n = index + 1;
-    return {
-      name: `frio-bot-${n}`,
-      cwd: root,
-      script: path.join(root, 'apostas.js'),
-      instances: 1,
-      exec_mode: 'fork',
-      env: {
-        ENV_FILE: path.join(root, `.env.bot${n}`),
-        BOT_INSTANCE_ID: `bot${n}`,
-        PORT: String(basePort + index),
+  "apps": [
+    {
+      "name": "frio-fleet-w0",
+      "script": "./fleet.js",
+      "exec_mode": "fork",
+      "instances": 1,
+      "node_args": "--max-old-space-size=1536",
+      "env": {
+        "WORKER_INDEX": "0",
+        "WORKER_COUNT": "10",
+        "PORT": "3000"
       },
-      autorestart: true,
-      max_restarts: 10,
-      restart_delay: 3000,
-      kill_timeout: 10000,
-      time: true,
-    };
-  }),
+      "autorestart": true,
+      "max_restarts": 20,
+      "restart_delay": 3000,
+      "kill_timeout": 30000,
+      "max_memory_restart": "1920M"
+    },
+    {
+      "name": "frio-fleet-w1",
+      "script": "./fleet.js",
+      "exec_mode": "fork",
+      "instances": 1,
+      "node_args": "--max-old-space-size=1536",
+      "env": {
+        "WORKER_INDEX": "1",
+        "WORKER_COUNT": "10",
+        "PORT": "3001"
+      },
+      "autorestart": true,
+      "max_restarts": 20,
+      "restart_delay": 3000,
+      "kill_timeout": 30000,
+      "max_memory_restart": "1920M"
+    },
+    {
+      "name": "frio-fleet-w2",
+      "script": "./fleet.js",
+      "exec_mode": "fork",
+      "instances": 1,
+      "node_args": "--max-old-space-size=1536",
+      "env": {
+        "WORKER_INDEX": "2",
+        "WORKER_COUNT": "10",
+        "PORT": "3002"
+      },
+      "autorestart": true,
+      "max_restarts": 20,
+      "restart_delay": 3000,
+      "kill_timeout": 30000,
+      "max_memory_restart": "1920M"
+    },
+    {
+      "name": "frio-fleet-w3",
+      "script": "./fleet.js",
+      "exec_mode": "fork",
+      "instances": 1,
+      "node_args": "--max-old-space-size=1536",
+      "env": {
+        "WORKER_INDEX": "3",
+        "WORKER_COUNT": "10",
+        "PORT": "3003"
+      },
+      "autorestart": true,
+      "max_restarts": 20,
+      "restart_delay": 3000,
+      "kill_timeout": 30000,
+      "max_memory_restart": "1920M"
+    },
+    {
+      "name": "frio-fleet-w4",
+      "script": "./fleet.js",
+      "exec_mode": "fork",
+      "instances": 1,
+      "node_args": "--max-old-space-size=1536",
+      "env": {
+        "WORKER_INDEX": "4",
+        "WORKER_COUNT": "10",
+        "PORT": "3004"
+      },
+      "autorestart": true,
+      "max_restarts": 20,
+      "restart_delay": 3000,
+      "kill_timeout": 30000,
+      "max_memory_restart": "1920M"
+    },
+    {
+      "name": "frio-fleet-w5",
+      "script": "./fleet.js",
+      "exec_mode": "fork",
+      "instances": 1,
+      "node_args": "--max-old-space-size=1536",
+      "env": {
+        "WORKER_INDEX": "5",
+        "WORKER_COUNT": "10",
+        "PORT": "3005"
+      },
+      "autorestart": true,
+      "max_restarts": 20,
+      "restart_delay": 3000,
+      "kill_timeout": 30000,
+      "max_memory_restart": "1920M"
+    },
+    {
+      "name": "frio-fleet-w6",
+      "script": "./fleet.js",
+      "exec_mode": "fork",
+      "instances": 1,
+      "node_args": "--max-old-space-size=1536",
+      "env": {
+        "WORKER_INDEX": "6",
+        "WORKER_COUNT": "10",
+        "PORT": "3006"
+      },
+      "autorestart": true,
+      "max_restarts": 20,
+      "restart_delay": 3000,
+      "kill_timeout": 30000,
+      "max_memory_restart": "1920M"
+    },
+    {
+      "name": "frio-fleet-w7",
+      "script": "./fleet.js",
+      "exec_mode": "fork",
+      "instances": 1,
+      "node_args": "--max-old-space-size=1536",
+      "env": {
+        "WORKER_INDEX": "7",
+        "WORKER_COUNT": "10",
+        "PORT": "3007"
+      },
+      "autorestart": true,
+      "max_restarts": 20,
+      "restart_delay": 3000,
+      "kill_timeout": 30000,
+      "max_memory_restart": "1920M"
+    },
+    {
+      "name": "frio-fleet-w8",
+      "script": "./fleet.js",
+      "exec_mode": "fork",
+      "instances": 1,
+      "node_args": "--max-old-space-size=1536",
+      "env": {
+        "WORKER_INDEX": "8",
+        "WORKER_COUNT": "10",
+        "PORT": "3008"
+      },
+      "autorestart": true,
+      "max_restarts": 20,
+      "restart_delay": 3000,
+      "kill_timeout": 30000,
+      "max_memory_restart": "1920M"
+    },
+    {
+      "name": "frio-fleet-w9",
+      "script": "./fleet.js",
+      "exec_mode": "fork",
+      "instances": 1,
+      "node_args": "--max-old-space-size=1536",
+      "env": {
+        "WORKER_INDEX": "9",
+        "WORKER_COUNT": "10",
+        "PORT": "3009"
+      },
+      "autorestart": true,
+      "max_restarts": 20,
+      "restart_delay": 3000,
+      "kill_timeout": 30000,
+      "max_memory_restart": "1920M"
+    }
+  ]
 };
