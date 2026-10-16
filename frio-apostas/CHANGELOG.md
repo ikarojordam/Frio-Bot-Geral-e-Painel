@@ -1,3 +1,12 @@
+## v2.0.8 — logs de partidas, PIX e limpeza da roleta
+
+- Ao finalizar uma partida, envia ao log de apostas um embed com vencedor, jogadores, mediador, prêmio, taxa, coins, responsável e transcript TXT do tópico.
+- O tópico muda para `partida-finalizada`, exibe contagem de 1 a 5 e é excluído após cinco segundos; se a API negar a exclusão, fica arquivado como fallback.
+- Alterações de PIX individual de mediadores e PIX configurado dentro de partidas geram logs sem registrar a chave secreta no conteúdo do log.
+- Removidos os botões “Configurar PIX” e “Ver meu PIX” do painel da fila de mediadores; a configuração continua no painel dedicado de PIX.
+- A roleta cria tópico privado, adiciona o ganhador e membros do cargo administrativo, exclui o aviso público após cinco segundos e remove o tópico cinco segundos após a ação de entrega/remoção.
+- Validação: `node --check`, `npm run check` e `npm test`. Acesso e exclusão do tópico privado ainda dependem das permissões reais do bot no Discord.
+
 # FrioBot Fleet v2.0.6 — atendimento e logs
 
 - `.govdev`: categoria **ATENDIMENTO** com canais suporte, reembolso, receber, evento, vagas e divulgação. O painel oferece esses seis tipos, cada ticket cria thread privada no canal correspondente e os tipos antigos foram retirados do painel novo.

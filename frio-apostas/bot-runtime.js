@@ -36,7 +36,7 @@ const SECRETS = [cfg.token, cfg.panelApiToken, cfg.mpAccessToken].filter(Boolean
 const console = createLogger(`bot:${cfg.id}`, { secrets: () => SECRETS });
 
 // ═══ VERSÃO ═══
-const BOT_VERSION = 'v2.0.7';
+const BOT_VERSION = 'v2.0.8';
 
 // ═══ CONFIG POR BOT (registro da frota) ═══
 const BOT_ID = cfg.id;
@@ -1043,6 +1043,65 @@ async function ffCleanupThread(thread, keepIds = []) {
   } catch (e) { console.error('[FF-CLEANUP]', e.message); }
 }
 
+// Exporta o transcript antes de excluir o tópico da partida e registra o resultado no log de apostas.
+async function ffLogFinishedMatch(guild, thread, match, winner, prize, fee, coins, closedBy) {
+  try {
+    const cfg = await ffGetConfig(guild.id);
+    const logChannel = cfg?.log_channel_id
+      ? (guild.channels.cache.get(cfg.log_channel_id) || await guild.channels.fetch(cfg.log_channel_id).catch(() => null))
+      : null;
+    const players = parseJson(match.players);
+    const msgs = thread?.messages ? await thread.messages.fetch({ limit: 100 }).catch(() => null) : null;
+    const transcriptLines = [...(msgs?.values() || [])]
+      .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+      .map(msg => {
+        const stamp = new Date(msg.createdTimestamp).toISOString();
+        const body = (msg.content || '').replace(/\r/g, '');
+        const embeds = (msg.embeds || []).map(e => `[Embed] ${e.title || ''} ${e.description || ''}`).join(' ');
+        const files = [...(msg.attachments?.values?.() || [])].map(a => `[Anexo: ${a.name || a.url}]`).join(' ');
+        return `[${stamp}] ${msg.author?.tag || msg.author?.username || msg.author?.id || 'desconhecido'}: ${body} ${embeds} ${files}`.trim();
+      });
+    const transcript = [
+      `TRANSCRIPT DA PARTIDA #${match.id}`,
+      `Servidor: ${guild.name} (${guild.id})`,
+      `Jogadores: ${players.map(id => `<@${id}> (${id})`).join(' vs ')}`,
+      `Vencedor: <@${winner}> (${winner})`,
+      `Mediador: ${match.mediator_id ? `<@${match.mediator_id}> (${match.mediator_id})` : 'não atribuído'}`,
+      `Prêmio: R$ ${Number(prize).toFixed(2)} | Taxa do mediador: R$ ${Number(fee).toFixed(2)} | Coins: ${coins}`,
+      `Finalizada por: ${closedBy ? `<@${closedBy}> (${closedBy})` : 'desconhecido'}`,
+      `Tópico: ${thread?.name || 'indisponível'} (${thread?.id || 'sem ID'})`,
+      '', ...transcriptLines,
+    ].join('\n');
+    const logEmbed = new EmbedBuilder().setTitle(`🏆 Partida #${match.id} finalizada`)
+      .setColor('#f1c40f')
+      .setDescription(`**Vencedor:** <@${winner}>\n**Jogadores:** ${players.map(id => `<@${id}>`).join(' vs ')}\n**Mediador:** ${match.mediator_id ? `<@${match.mediator_id}>` : 'Não atribuído'}\n**Prêmio:** R$ ${Number(prize).toFixed(2)}\n**Taxa do mediador:** R$ ${Number(fee).toFixed(2)}\n**Coins creditadas:** ${coins}\n**Finalizada por:** ${closedBy ? `<@${closedBy}>` : '—'}\n**Tópico:** \`${thread?.id || 'indisponível'}\``)
+      .setTimestamp();
+    if (logChannel?.isTextBased?.()) {
+      const safeName = `transcript-partida-${String(match.id).replace(/[^a-zA-Z0-9_-]/g, '')}.txt`;
+      await logChannel.send({ embeds: [logEmbed], files: [new AttachmentBuilder(Buffer.from(transcript, 'utf8'), { name: safeName })] }).catch(e => console.warn('[MATCH-TRANSCRIPT-LOG]', e.message));
+    }
+    await ffLog(guild, 'resultado', 'partida_finalizada', closedBy || null, {
+      match_id: match.id, winner_id: winner, player_ids: players,
+      mediator_id: match.mediator_id || null, prize_amount: Number(prize),
+      mediator_fee: Number(fee), coins, transcript_attached: !!logChannel,
+    });
+  } catch (e) { console.warn('[MATCH-TRANSCRIPT-LOG]', e.message); }
+}
+
+async function ffCountdownAndDeleteThread(thread) {
+  if (!thread?.isThread?.()) return;
+  await thread.setName('partida-finalizada').catch(() => {});
+  const countdown = await thread.send({ content: '🏁 **Partida finalizada. Encerramento em 1/5…**' }).catch(() => null);
+  for (let n = 2; n <= 5; n++) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    if (countdown) await countdown.edit(`🏁 **Partida finalizada. Encerramento em ${n}/5…**`).catch(() => {});
+  }
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  await thread.delete('Partida finalizada; tópico removido após contagem de cinco segundos').catch(async () => {
+    await thread.setArchived(true, 'Partida finalizada').catch(() => {});
+  });
+}
+
 // ═══════════════════════════════════════════════════════════
 // THREAD DE APOSTA
 // ═══════════════════════════════════════════════════════════
@@ -1167,10 +1226,6 @@ async function ffBuildMediatorPanel(gid) {
         new ButtonBuilder().setCustomId('ffmed:entrar').setLabel('Entrar na fila').setEmoji('✅').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('ffmed:sair').setLabel('Sair da fila').setEmoji('🚪').setStyle(ButtonStyle.Danger),
         new ButtonBuilder().setCustomId('ffmed:receita').setLabel('Minha receita').setEmoji('💰').setStyle(ButtonStyle.Secondary),
-      ),
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ffpixmed:config').setLabel('Configurar PIX').setEmoji('💳').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('ffpixmed:view').setLabel('Ver meu PIX').setEmoji('👁️').setStyle(ButtonStyle.Primary),
       ),
     ],
   };
@@ -2127,19 +2182,19 @@ client.on('interactionCreate', async (i) => {
             if (med) await supabase.from('ff_mediator_queue').update({ status: 'waiting', current_match_id: null, earnings_total: Number(med.earnings_total || 0) + fee, matches_total: Number(med.matches_total || 0) + 1 }).eq('id', med.id);
           }
         } catch (e) { console.error('[FINALIZE-MEDIATOR]', e.message); }
-        await i.editReply({ content: `🏁 Partida finalizada! Vencedor: <@${winner}>.` }).catch(() => {});
+        await i.editReply({ content: `🏁 Partida finalizada! Vencedor: <@${winner}>. O tópico será removido em 5 segundos.` }).catch(() => {});
         const ch = i.channel;
-        void (async () => {
-          await ch.setName(ffThreadName('finished', m.value, players, matchId)).catch(() => {});
-          await ffCleanupThread(ch);
-          const e = new EmbedBuilder().setTitle('🏆 PARTIDA FINALIZADA').setColor('#f1c40f').setDescription(`**Vencedor:** <@${winner}>\n**Prêmio:** R$ ${prize.toFixed(2)}`).addFields(
+        // Transcript e resultado são enviados ao log de apostas antes do fechamento do tópico.
+        await ffLogFinishedMatch(guild, ch, m, winner, prize, fee, coins, i.user.id);
+        const e = new EmbedBuilder().setTitle('🏆 PARTIDA FINALIZADA').setColor('#f1c40f')
+          .setDescription(`**Vencedor:** <@${winner}>\n**Jogadores:** ${players.map(p => `<@${p}>`).join(' vs ')}\n**Mediador:** ${m.mediator_id ? `<@${m.mediator_id}>` : 'Não atribuído'}\n**Prêmio:** R$ ${prize.toFixed(2)}`)
+          .addFields(
             { name: '💰 Prêmio', value: `R$ ${prize.toFixed(2)}`, inline: true },
             { name: '💎 Coins', value: `${coins}`, inline: true },
             { name: '💵 Taxa', value: `R$ ${fee.toFixed(2)}`, inline: true },
           ).setTimestamp();
-          await ch.send({ embeds: [e] }).catch(() => {});
-          setTimeout(() => ch.setArchived(true).catch(() => {}), 15000);
-        })().catch(() => {});
+        await ch.send({ embeds: [e] }).catch(() => {});
+        void ffCountdownAndDeleteThread(ch);
         return;
       }
 
@@ -2781,6 +2836,7 @@ client.on('interactionCreate', async (i) => {
       const type = i.fields.getTextInputValue('type').trim() || 'aleatoria';
       const result = await ffSetMediatorPix(guild.id, i.user.id, key, name, city, type);
       if (!result) return i.reply({ content: '❌ Falha ao salvar.', flags: EPHEMERAL });
+      await ffLog(guild, 'pixmed', 'config_pix_mediador', i.user.id, { mediator_id: i.user.id, pix_type: type, titular: name, chave_atualizada: true });
       return i.reply({
         embeds: [new EmbedBuilder().setTitle('✅ PIX salvo!').setColor('#22c55e')
           .setDescription(`Seu PIX foi configurado com sucesso.\n\n> 🔑 \`${key}\`\n> 👤 ${name}`)
@@ -2799,6 +2855,7 @@ client.on('interactionCreate', async (i) => {
       if (!m?.mediator_id) return i.reply({ content: '❌ Partida sem mediador atribuído; não foi possível salvar o PIX.', flags: EPHEMERAL });
       const savedPix = await ffSetMediatorPix(guild.id, m.mediator_id, key, name, city, 'aleatoria');
       if (!savedPix) return i.reply({ content: '❌ Falha ao salvar o PIX individual do mediador.', flags: EPHEMERAL });
+      await ffLog(guild, 'pixmed', 'config_pix_partida', i.user.id, { mediator_id: m.mediator_id, match_id: matchId, pix_type: 'aleatoria', titular: name, chave_atualizada: true });
       await i.reply({ content: `✅ PIX salvo para <@${m.mediator_id}>.`, flags: EPHEMERAL });
 
       if (m) {
@@ -8458,9 +8515,18 @@ client.on('interactionCreate', async (i) => {
   try {
     if (!i.guild || (!isDeveloper(i.user.id) && !await isAdmin(i.member, i.guild).catch(()=>false))) return i.reply({content:'Apenas a equipe administrativa pode atualizar esta entrega.',flags:EPHEMERAL});
     const action = i.customId.split(':')[1];
-    await i.reply({content: action === 'delivered' ? '✅ Entrega marcada como concluída.' : '🗑️ Solicitação de prêmio removida.',flags:EPHEMERAL}).catch(()=>{});
+    await i.reply({content: action === 'delivered' ? '✅ Entrega marcada. O tópico será excluído em 5 segundos (1/5).' : '🗑️ Solicitação removida. O tópico será excluído em 5 segundos (1/5).',flags:EPHEMERAL}).catch(()=>{});
     const thread = i.channel;
-    if (thread?.isThread?.()) setTimeout(()=>thread.setArchived(true, action === 'delivered' ? 'Prêmio entregue' : 'Solicitação removida').catch(()=>{}),5000);
+    if (thread?.isThread?.()) {
+      for (let n = 2; n <= 5; n++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await i.editReply({ content: `${action === 'delivered' ? '✅ Entrega concluída' : '🗑️ Solicitação removida'} — exclusão do tópico em ${n}/5.` }).catch(() => {});
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await thread.delete(action === 'delivered' ? 'Prêmio entregue; tópico removido após cinco segundos' : 'Solicitação removida; tópico removido após cinco segundos').catch(async () => {
+        await thread.setArchived(true, 'Não foi possível excluir o tópico da roleta').catch(() => {});
+      });
+    }
   } catch(e) { console.warn('[ROULETTE-THREAD]',e.message); }
 });
 
@@ -8500,6 +8566,8 @@ client.on('interactionCreate', async (i) => {
     if (reward > 0) await logCoins(i.guild, i.user.id, reward, 'Prêmio da roleta', null).catch(() => {});
     const label = prize.label || `${prize.value} ${prize.type}`;
     await i.editReply(prize.type === 'coins' && reward === 0 ? 'A roleta não trouxe coins desta vez. Você pode tentar novamente daqui a uma hora.' : `🎉 A roleta sorteou **${label}**!`);
+    // Tanto o aviso no canal quanto a resposta efêmera do prêmio são temporários.
+    setTimeout(() => i.deleteReply().catch(() => {}), 5000);
     // Aviso temporário no canal e tópico de controle para staff; dinheiro é sempre conferido manualmente.
     const announceChannel = rouletteConfig.announceChannelId ? await i.guild.channels.fetch(rouletteConfig.announceChannelId).catch(()=>null) : i.channel;
     if (announceChannel?.isTextBased?.() && typeof announceChannel.send === 'function') {
@@ -8507,8 +8575,23 @@ client.on('interactionCreate', async (i) => {
       if (notice) setTimeout(()=>notice.delete().catch(()=>{}), 5000);
       const adminRole = rouletteConfig.adminRoleId ? `<@&${rouletteConfig.adminRoleId}> ` : '';
       if (announceChannel.threads?.create) {
-        const thread = await announceChannel.threads.create({ name: `Prêmio roleta • ${i.user.username}`.slice(0,100), autoArchiveDuration: 1440, reason: 'Controle de entrega de prêmio da roleta' }).catch(()=>null);
+        const thread = await announceChannel.threads.create({
+          name: `prêmio-roleta-${i.user.username}`.slice(0, 100),
+          autoArchiveDuration: 1440,
+          type: ChannelType.PrivateThread,
+          invitable: false,
+          reason: 'Controle privado de entrega de prêmio da roleta',
+        }).catch((err) => { console.warn('[ROULETTE-THREAD-CREATE]', err.message); return null; });
         if (thread) {
+          // A thread privada inclui o ganhador e os administradores em cache; a menção chama o cargo no tópico.
+          await thread.members.add(i.user.id).catch(() => {});
+          const adminRoleObj = rouletteConfig.adminRoleId ? (i.guild.roles.cache.get(String(rouletteConfig.adminRoleId)) || await i.guild.roles.fetch(String(rouletteConfig.adminRoleId)).catch(() => null)) : null;
+          if (adminRoleObj) {
+            // Atualiza membros do cargo para que o tópico privado fique acessível à administração, não só mencionado.
+            await i.guild.members.fetch().catch(() => null);
+            const adminIds = [...adminRoleObj.members.values()].map(member => member.id);
+            await Promise.all(adminIds.map(uid => thread.members.add(uid).catch(() => {})));
+          }
           await thread.send({ content: `${adminRole}Prêmio para ${i.user}: **${label}**\nTipo: ${prize.type === 'cash' ? 'Dinheiro — requer pagamento manual confirmado' : prize.type}.`, components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`roulette:delivered:${i.user.id}`).setLabel('Entregue').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`roulette:delete:${i.user.id}`).setLabel('Excluir').setStyle(ButtonStyle.Danger))], allowedMentions: { roles: rouletteConfig.adminRoleId ? [rouletteConfig.adminRoleId] : [], users: [] } }).catch(()=>{});
         }
       }
