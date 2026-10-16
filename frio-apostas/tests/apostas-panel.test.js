@@ -104,3 +104,33 @@ test('PIX por partida é salvo no cadastro individual do mediador', () => {
   assert.match(source, /ffSetMediatorPix\(guild\.id, m\.mediator_id, key, name, city, 'aleatoria'\)/);
   assert.match(source, /const pix = m\.mediator_id \? await ffGetMediatorPix\(guild\.id, m\.mediator_id\)/);
 });
+
+
+test('fila de mediadores não mostra botões PIX', () => {
+  const panel = between('async function ffBuildMediatorPanel(gid)', '// ═══════════════════════════════════════════════════════════\n// PAINEL DE ANALISTA');
+  assert.doesNotMatch(panel, /setCustomId\('ffpixmed:(config|view)'\)/);
+});
+
+test('finalização envia transcript ao log, faz contagem e remove tópico', () => {
+  assert.match(source, /async function ffLogFinishedMatch/);
+  assert.match(source, /transcript-partida-/);
+  assert.match(source, /setName\('partida-finalizada'\)/);
+  assert.match(source, /ffCountdownAndDeleteThread/);
+  assert.match(source, /thread\.delete\('Partida finalizada/);
+  assert.match(source, /ffLog\(guild, 'resultado', 'partida_finalizada'/);
+});
+
+test('configuração PIX individual gera log sem salvar a chave no evento', () => {
+  assert.match(source, /ffLog\(guild, 'pixmed', 'config_pix_mediador'/);
+  assert.match(source, /ffLog\(guild, 'pixmed', 'config_pix_partida'/);
+});
+
+test('roleta usa tópico privado e exclui a thread após a contagem', () => {
+  const roulette = between("client.on('interactionCreate', async (i) => {\n  if (!i.isButton() || !/^roulette:(delivered|delete):", "client.on('interactionCreate', async (i) => {\n  if (!i.isButton() || i.customId !== 'roulette:spin')");
+  assert.match(roulette, /thread\.delete/);
+  const spin = between("client.on('interactionCreate', async (i) => {\n  if (!i.isButton() || i.customId !== 'roulette:spin')", '// Comando de criação do cargo Dev');
+  assert.match(spin, /type: ChannelType\.PrivateThread/);
+  assert.match(spin, /adminRoleObj\.members/);
+  assert.ok(spin.includes('setTimeout(()=>notice.delete().catch(()=>{}), 5000)'));
+  assert.match(spin, /setTimeout\(\(\) => i\.deleteReply\(\)\.catch\(\(\) => \{\}\), 5000\)/);
+});
