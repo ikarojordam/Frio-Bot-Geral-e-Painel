@@ -1,3 +1,11 @@
+# FrioBot Fleet v2.0.6 — atendimento e logs
+
+- `.govdev`: categoria **ATENDIMENTO** com canais suporte, reembolso, receber, evento, vagas e divulgação. O painel oferece esses seis tipos, cada ticket cria thread privada no canal correspondente e os tipos antigos foram retirados do painel novo.
+- Categorias de apostas ordenadas como **MOBILE → EMULADOR → MISTO** (MISTO fica logo abaixo de EMULADOR).
+- Novos canais de logs: membros, mensagens, moderação, pagamentos e erros; eventos de membros, mensagens e banimentos são roteados para os canais correspondentes.
+- Execute `sql/MIGRACAO_LOGS_ATENDIMENTO.sql` no Supabase para habilitar `configs.log_channels`.
+- `.govdev confirmar` continua apagando os canais/cargos que o bot pode excluir; faça backup antes de usar.
+
 # FrioBot v2.0.0 — Frota multibot
 
 ## Novidades
@@ -70,3 +78,9 @@ Limitações importantes: o QR Code do `.gp` codifica exatamente a chave/link in
 - Movidos os seletores SS Mobile/Emulador para a própria seção **Apostas** do painel efêmero existente `/apostas painel`.
 - O painel mostra os cargos salvos e atualiza a mensagem efêmera após uma seleção.
 - Nenhum novo comando slash foi adicionado; existe apenas `/apostas painel`.
+
+## v2.0.5 — Setup da organização e publicação manual
+- O setup da organização agora inclui regras mais completas e registra explicitamente formatos sem canal, incluindo modalidades mistas, no relatório de falhas.
+- Reforçada a detecção de rate limit no envio de embeds para melhorar a recuperação em setups com muitas publicações.
+- A publicação manual de apostas usa seletor nativo de canal do Discord com pesquisa, sem o limite dos primeiros 25 canais.
+- Ao escolher uma modalidade e canal, é possível publicar todos os valores de aposta em ordem decrescente, ou escolher apenas um valor.

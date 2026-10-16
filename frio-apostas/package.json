@@ -1,9 +1,11 @@
 {
   "name": "frio-apostas",
-  "version": "2.0.4",
+  "version": "2.0.6",
   "description": "BACK BOT — Sistema de apostas FF com painel de automações (multibot/frota)",
   "main": "apostas.js",
-  "engines": { "node": "22.x" },
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "start": "node apostas.js",
     "fleet": "node fleet.js",
@@ -21,7 +23,13 @@
     "qrcode": "^1.5.3",
     "ws": "8.18.0"
   },
-  "keywords": ["discord", "bot", "free-fire", "apostas", "multibot"],
+  "keywords": [
+    "discord",
+    "bot",
+    "free-fire",
+    "apostas",
+    "multibot"
+  ],
   "author": "FrioBot",
   "license": "UNLICENSED",
   "private": true

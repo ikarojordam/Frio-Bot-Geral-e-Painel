@@ -36,7 +36,7 @@ const SECRETS = [cfg.token, cfg.panelApiToken, cfg.mpAccessToken].filter(Boolean
 const console = createLogger(`bot:${cfg.id}`, { secrets: () => SECRETS });
 
 // ═══ VERSÃO ═══
-const BOT_VERSION = 'v2.0.4';
+const BOT_VERSION = 'v2.0.6';
 
 // ═══ CONFIG POR BOT (registro da frota) ═══
 const BOT_ID = cfg.id;
@@ -112,7 +112,7 @@ const intents = [
 ];
 if (FEATURES.message_content) intents.push(GatewayIntentBits.MessageContent);   // privilegiado
 if (FEATURES.guild_members) intents.push(GatewayIntentBits.GuildMembers);       // privilegiado
-if (FEATURES.antiraid) intents.push(GatewayIntentBits.GuildModeration);         // audit log em tempo real (não privilegiado)
+intents.push(GatewayIntentBits.GuildModeration); // logs de banimento e audit log; intent não privilegiado
 const client = new Client({
   intents,
   partials: [Partials.Channel, Partials.Message, Partials.Reaction],
@@ -3147,12 +3147,16 @@ client.on('interactionCreate', async (i) => {
 
       if (action === 'postar_pick_format') {
         const fmt = FF_FORMATS.find(f => f.id === value);
-        if (!fmt) return i.update({ content: '❌', embeds: [], components: [] });
-        const menu = new StringSelectMenuBuilder().setCustomId(`ffcfg:postar_pick_channel:${value}`).setPlaceholder('📁 Canal');
-        const chs = [...guild.channels.cache.filter(c => c.type === ChannelType.GuildText && c.permissionsFor(guild.members.me)?.has(PermissionFlagsBits.SendMessages)).values()].slice(0, 24);
-        for (const ch of chs) menu.addOptions({ label: ch.name.slice(0, 90), value: ch.id });
+        if (!fmt) return i.update({ content: '❌ Modalidade inválida.', embeds: [], components: [] });
+        // ChannelSelectMenu do Discord inclui pesquisa nativa e não limita a lista aos primeiros 25 canais.
+        const menu = new ChannelSelectMenuBuilder()
+          .setCustomId(`ffcfg:postar_channelpick:${fmt.id}`)
+          .setPlaceholder('🔎 Pesquise e selecione o canal')
+          .setChannelTypes(ChannelType.GuildText)
+          .setMinValues(1).setMaxValues(1);
         return i.update({
-          embeds: [new EmbedBuilder().setTitle(`📢 ${fmt.label}`).setColor('#f1c40f').setDescription('Escolha o canal:')],
+          embeds: [new EmbedBuilder().setTitle(`📢 ${fmt.label}`).setColor('#f1c40f')
+            .setDescription('Pesquise o canal pelo nome na lista do Discord e selecione onde publicar este tipo de embed. Os valores serão apresentados do maior para o menor.')],
           components: [new ActionRowBuilder().addComponents(menu)],
         });
       }
@@ -3178,22 +3182,32 @@ client.on('interactionCreate', async (i) => {
         const fmt = FF_FORMATS.find(f => f.id === fmtId);
         const ch = guild.channels.cache.get(channelId);
         if (!fmt || !ch) return i.update({ content: '❌', embeds: [], components: [] });
-        const valor = parseFloat(value);
         const cfgFF = await ffGetConfig(guild.id);
-        try {
-          const { data: bet } = await supabase.from('ff_bets').insert({
-            guild_id: guild.id, channel_id: ch.id, format: fmt.label, value: valor,
-          }).select().single();
-          const msg = await ch.send({
-            embeds: [ffBuildBetEmbed(bet, cfgFF)],
-            components: [ffBuildBetButtons(bet.id, cfgFF)],
-          });
-          await ffPatchBet(bet.id, { message_id: msg.id });
-          return i.update({
-            embeds: [new EmbedBuilder().setTitle('✅ Postado').setColor('#22c55e').setDescription(`**${fmt.label}** — R$ ${valor.toFixed(2)} em ${ch}`)],
-            components: [],
-          });
-        } catch (e) { return i.update({ content: `❌ ${e.message}`, embeds: [], components: [] }); }
+        const cfg = await ffGetConfig(guild.id);
+        const configured = Array.isArray(cfg?.value_options) && cfg.value_options.length ? cfg.value_options : FF_DEFAULT_VALUES;
+        const allValues = [...new Set(configured.map(v => Number.parseFloat(String(v).replace(',', '.'))).filter(v => Number.isFinite(v) && v > 0))].sort((a, b) => b - a);
+        const valuesToPost = value === '__all__' ? allValues : [Number.parseFloat(value)];
+        if (!valuesToPost.length || valuesToPost.some(v => !Number.isFinite(v) || v <= 0)) return i.update({ content: 'Valor inválido.', embeds: [], components: [] });
+        await i.update({ embeds: [new EmbedBuilder().setTitle('📤 Publicando embeds').setColor('#f1c40f')
+          .setDescription(`Modalidade: **${fmt.label}**\nCanal: <#${ch.id}>\nValores: ${valuesToPost.map(v => `R$ ${v.toFixed(2).replace('.', ',')}`).join(' → ')}`)], components: [] });
+        let posted = 0, failed = 0;
+        for (const valor of valuesToPost) {
+          try {
+            const { data: bet, error: insertError } = await supabase.from('ff_bets').insert({
+              guild_id: guild.id, channel_id: ch.id, format: fmt.label, value: valor,
+            }).select().single();
+            if (insertError || !bet) throw new Error(insertError?.message || 'Não foi possível salvar a aposta.');
+            const msg = await ch.send({ embeds: [ffBuildBetEmbed(bet, cfgFF)], components: [ffBuildBetButtons(bet.id, cfgFF)] });
+            await ffPatchBet(bet.id, { message_id: msg.id });
+            posted++;
+          } catch (e) {
+            failed++;
+            console.error(`[APOSTAS-MANUAL] ${fmt.label} R$${valor}:`, e.message);
+          }
+        }
+        const summary = `**${fmt.label}** em <#${ch.id}>\n✅ Publicados: **${posted}/${valuesToPost.length}**${failed ? `\n⚠️ Falhas: **${failed}** (veja os logs do bot)` : ''}`;
+        return i.followUp({ embeds: [new EmbedBuilder().setTitle(failed ? '⚠️ Publicação concluída com falhas' : '✅ Publicação concluída')
+          .setColor(failed ? '#f1c40f' : '#22c55e').setDescription(summary)], flags: EPHEMERAL });
       }
 
       if (action === 'postar_auto_pick_channel') {
@@ -7577,7 +7591,7 @@ function orgInfoEmbeds() {
   const E = ORG_EMOJI;
   return {
     regras: { t: `📕 Regras — ${ORG_NAME}`, c: '#5865F2',
-      d: '**1.** Respeite todos os membros.\n**2.** Sem spam ou flood.\n**3.** Sem preconceito de qualquer tipo.\n**4.** Sem divulgação fora dos canais permitidos.\n**5.** Respeite os mediadores e a staff.\n**6.** Dúvidas ou problemas: abra um ticket.' },
+      d: '**1. Respeito:** trate todos os membros com respeito; assédio, discriminação e ameaças não são permitidos.\n**2. Spam e flood:** não envie mensagens repetidas, menções em massa ou conteúdo abusivo.\n**3. Divulgação:** divulgue apenas nos canais autorizados.\n**4. Apostas:** confira modalidade, valor e participantes antes de confirmar; não tente fraudar resultados ou comprovantes.\n**5. Mediadores:** siga as instruções da equipe e nunca compartilhe dados privados em canais públicos.\n**6. Pagamentos:** confirme os dados antes de pagar e envie comprovantes somente no canal indicado.\n**7. Análises/SS:** coopere com os analistas e não atrapalhe a fila.\n**8. Punições:** violações podem resultar em aviso, timeout, remoção de cargos ou banimento conforme a gravidade.\n**9. Suporte:** abra um ticket para contestar uma decisão ou relatar problemas.' },
     termos: { t: '📜 Termos de Uso', c: '#5865F2',
       d: `Ao usar o servidor da **${ORG_NAME}**, você concorda com as regras e os termos de uso.\nO descumprimento pode resultar em punição e entrada na blacklist.` },
     avisos: { t: '📢 Avisos', c: '#5865F2',
@@ -7650,9 +7664,10 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
     for (let a = 0; a < retries; a++) {
       try { const m = await ch.send(payload); embedsOk++; await sleep(450); return m; }
       catch (e) {
-        const isRL = e?.status === 429 || e?.httpStatus === 429;
+        const isRL = e?.status === 429 || e?.httpStatus === 429 || e?.code === 429 || e?.rawError?.code === 429;
         if (isRL) {
-          const wait = Math.ceil((e?.retry_after || e?.rawError?.retry_after || 5)) * 1000;
+          const retryAfter = Number(e?.retry_after ?? e?.rawError?.retry_after ?? e?.data?.retry_after ?? 5);
+          const wait = Math.max(1000, Math.ceil(retryAfter * (retryAfter < 100 ? 1000 : 1)));
           await sleep(wait + 500); continue;
         }
         if (a < retries - 1) { await sleep(1000 * (a + 1)); continue; }
@@ -7754,8 +7769,12 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
     ]},
 
     { cat: `${E} ATENDIMENTO`, channels: [
-      { key: 'ticket',  name: nm('ticket'),  ro: true, writers: adminRoles },
-      { key: 'suporte', name: nm('suporte') },
+      { key: 'suporte',    name: nm('suporte') },
+      { key: 'reembolso',  name: nm('reembolso') },
+      { key: 'receber',    name: nm('receber') },
+      { key: 'atendimento_evento', name: nm('evento') },
+      { key: 'vagas',      name: nm('vagas') },
+      { key: 'atendimento_divulgacao', name: nm('divulgação') },
     ]},
 
     { cat: `${E} PARTIDAS`, channels: [
@@ -7783,13 +7802,14 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
       betCh('3x3_mobile', '3x3', 'mob'), betCh('4x4_mobile', '4x4', 'mob'),
     ]},
 
-    { cat: `${E} MISTAS`, channels: [
-      betCh('2x2_misto', '2x2', 'misto'), betCh('3x3_misto', '3x3', 'misto'), betCh('4x4_misto', '4x4', 'misto'),
-    ]},
-
+    // A ordem é intencional: MISTO deve ficar imediatamente abaixo de EMULADOR.
     { cat: `${E} EMULADOR`, channels: [
       betCh('1x1_emu', '1x1', 'emu'), betCh('2x2_emu', '2x2', 'emu'),
       betCh('3x3_emu', '3x3', 'emu'), betCh('4x4_emu', '4x4', 'emu'),
+    ]},
+
+    { cat: `${E} MISTO`, channels: [
+      betCh('2x2_misto', '2x2', 'misto'), betCh('3x3_misto', '3x3', 'misto'), betCh('4x4_misto', '4x4', 'misto'),
     ]},
 
     { cat: `${E} COINS`, channels: [
@@ -7819,10 +7839,15 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
 
     { cat: `${E} LOGS`, priv: true, allow: logRoles, channels: [
       { key: 'log_ticket',     name: nm('log-ticket') },
+      { key: 'log_membros',    name: nm('log-membros') },
+      { key: 'log_mensagens',  name: nm('log-mensagens') },
+      { key: 'log_moderacao',  name: nm('log-moderacao') },
+      { key: 'log_pagamentos', name: nm('log-pagamentos') },
       { key: 'log_apostas',    name: nm('log-apostas') },
       { key: 'log_mediadores', name: nm('log-mediadores') },
       { key: 'log_coins',      name: nm('log-coins') },
       { key: 'log_config',     name: nm('log-config') },
+      { key: 'log_erros',      name: nm('log-erros') },
     ]},
   ];
 
@@ -7870,7 +7895,14 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
       log_channel: created.log_apostas?.id || '',
       ticket_log_channel: created.log_ticket?.id || '',
       welcome_channel: created.avisos?.id || '',
-      suggestion_channel: created.suporte?.id || '',
+      suggestion_channel: created.feedbacks?.id || '',
+      log_channels: {
+        tickets: created.log_ticket?.id || '', members: created.log_membros?.id || '',
+        messages: created.log_mensagens?.id || '', moderation: created.log_moderacao?.id || '',
+        payments: created.log_pagamentos?.id || '', bets: created.log_apostas?.id || '',
+        mediators: created.log_mediadores?.id || '', coins: created.log_coins?.id || '',
+        config: created.log_config?.id || '', errors: created.log_erros?.id || '',
+      },
     });
     await setConfig(guild.id, cfg);
   } catch (e) { errors.push(`config: ${e.message}`); }
@@ -7901,14 +7933,16 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
   for (const f of FF_FORMATS) {
     if (created[f.id]) canalMap[f.id] = created[f.id].id;
   }
-  for (const [formato, canalId] of Object.entries(canalMap)) {
-    await ffSetCanal(guild.id, formato, canalId).catch((e) => errors.push(`canal ${formato}: ${e.message}`));
+  for (const f of FF_FORMATS) {
+    const canalId = canalMap[f.id];
+    if (!canalId) { errors.push(`apostas ${f.label}: canal não criado, embeds não serão publicados`); continue; }
+    await ffSetCanal(guild.id, f.id, canalId).catch((e) => errors.push(`canal ${f.id}: ${e.message}`));
   }
 
   // 10. EMBEDS / PAINÉIS — tudo é enviado e qualquer falha aparece no relatório
   await log('🎫 Painel de ticket...');
   try {
-    const tkCh = created.ticket;
+    const tkCh = created.suporte;
     if (tkCh) {
       const panel = await createTicketPanel(guild.id, {
         nome: 'Suporte',
@@ -7919,11 +7953,12 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
         cargo_id: R('SUPORTE')?.id || null,
         log_channel_id: created.log_ticket?.id || null,
         tipos: [
-          { id: 'suporte',    label: 'Suporte Geral',       emoji: '🛠️' },
-          { id: 'aposta',     label: 'Problema com Aposta', emoji: '🎮' },
-          { id: 'mediador',   label: 'Vaga Mediador',       emoji: '🛡️' },
-          { id: 'influencer', label: 'Vaga Influencer',     emoji: '🎥' },
-          { id: 'outro',      label: 'Outro assunto',       emoji: '❓' },
+          { id: 'suporte',   label: 'Suporte',    emoji: '🛠️', topic_channel_id: created.suporte?.id || null },
+          { id: 'reembolso', label: 'Reembolso',  emoji: '💸', topic_channel_id: created.reembolso?.id || null },
+          { id: 'receber',   label: 'Receber',    emoji: '📥', topic_channel_id: created.receber?.id || null },
+          { id: 'evento',    label: 'Evento',     emoji: '🎉', topic_channel_id: created.atendimento_evento?.id || null },
+          { id: 'vagas',     label: 'Vagas',      emoji: '📋', topic_channel_id: created.vagas?.id || null },
+          { id: 'divulgacao',label: 'Divulgação', emoji: '📣', topic_channel_id: created.atendimento_divulgacao?.id || null },
         ],
       });
       const msg = await post(tkCh, {
@@ -7931,7 +7966,7 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
         components: buildTicketPanelComponents(panel),
       }, 'painel de ticket');
       if (msg) await updateTicketPanel(guild.id, panel.id, { canal_id: tkCh.id, mensagem_id: msg.id });
-    } else errors.push('painel de ticket: canal ticket não existe');
+    } else errors.push('painel de ticket: canal suporte não existe');
   } catch (e) { errors.push(`ticket panel: ${e.message}`); }
 
   await log('🛡️ Painéis de staff...');
@@ -7988,7 +8023,8 @@ async function runOrgSetup(guild, logFn = () => {}, tag = 'ORG') {
   try {
     const cfgFF = await ffGetConfig(guild.id);
     const ordered = [...FF_DEFAULT_VALUES].map(v => parseFloat(v)).sort((a, b) => b - a);
-    for (const [formatoId, canalId] of Object.entries(canalMap)) {
+    for (const formatoId of FF_FORMATS.map(f => f.id)) {
+      const canalId = canalMap[formatoId];
       const fmt = FF_FORMATS.find(f => f.id === formatoId);
       const ch = guild.channels.cache.get(canalId) || created[formatoId];
       if (!fmt || !ch) { errors.push(`apostas ${formatoId}: canal/formato inválido`); continue; }
@@ -8635,6 +8671,44 @@ async function registerCommands(force = false) {
   }
   return ok;
 }
+
+// Seleção de canal pesquisável para publicação manual de embeds de apostas.
+client.on('interactionCreate', async (i) => {
+  if (!i.isChannelSelectMenu?.() || !/^ffcfg:postar_channelpick:[a-z0-9_]+$/i.test(i.customId || '')) return;
+  try {
+    if (!i.guild || (!await isAdmin(i.user, i.guild).catch(() => false) && !isDeveloper(i.user.id))) {
+      return i.reply({ content: 'Apenas a administração pode publicar embeds de apostas.', flags: EPHEMERAL });
+    }
+    const fmtId = i.customId.split(':')[2];
+    const fmt = FF_FORMATS.find(f => f.id === fmtId);
+    const channelId = i.values?.[0];
+    const channel = channelId ? await i.guild.channels.fetch(channelId).catch(() => null) : null;
+    if (!fmt || !channel || channel.type !== ChannelType.GuildText) {
+      return i.reply({ content: 'Modalidade ou canal inválido. Tente novamente.', flags: EPHEMERAL });
+    }
+    const me = i.guild.members.me || await i.guild.members.fetchMe().catch(() => null);
+    if (!me || !channel.permissionsFor(me)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks])) {
+      return i.reply({ content: 'Não tenho permissão para enviar embeds nesse canal (ver canal, enviar mensagens e incorporar links).', flags: EPHEMERAL });
+    }
+    const cfg = await ffGetConfig(i.guild.id);
+    let vals = Array.isArray(cfg?.value_options) ? cfg.value_options : [];
+    if (!vals.length) { vals = FF_DEFAULT_VALUES; await ffPatchConfig(i.guild.id, { value_options: vals }); }
+    const sorted = [...new Set(vals.map(v => Number.parseFloat(String(v).replace(',', '.'))).filter(v => Number.isFinite(v) && v > 0))].sort((a, b) => b - a).slice(0, 25);
+    if (!sorted.length) return i.reply({ content: 'Não há valores de aposta válidos configurados.', flags: EPHEMERAL });
+    const menu = new StringSelectMenuBuilder().setCustomId(`ffcfg:postar_pick_value:${fmt.id}:${channel.id}`).setPlaceholder('💰 Escolha valor ou todos (maior → menor)');
+    menu.addOptions({ label: 'Publicar TODOS os valores (maior → menor)', value: '__all__', description: `${sorted.length} embeds para ${fmt.label}`, emoji: '📚' });
+    for (const v of sorted) menu.addOptions({ label: `R$ ${v.toFixed(2).replace('.', ',')}`, value: v.toFixed(2), emoji: '💰' });
+    return i.update({
+      embeds: [new EmbedBuilder().setTitle(`📢 ${fmt.label} → #${channel.name}`).setColor('#f1c40f')
+        .setDescription(`Canal selecionado: <#${channel.id}>\nEscolha o valor para publicar. Os valores estão ordenados do maior para o menor.`)],
+      components: [new ActionRowBuilder().addComponents(menu)],
+    });
+  } catch (err) {
+    console.error('[APOSTAS-CHANNEL-PICK]', err);
+    const payload = { content: `Falha ao selecionar canal: ${String(err.message || err).slice(0, 220)}`, flags: EPHEMERAL };
+    return (i.replied || i.deferred ? i.followUp(payload) : i.reply(payload)).catch(() => {});
+  }
+});
 
 // Configuração de cargos SS dentro do painel efêmero /apostas painel.
 client.on('interactionCreate', async (i) => {
@@ -9619,12 +9693,31 @@ async function applyAutorole(m) {
   });
 }
 
+// Logs adicionais do setup .govdev. Cada tipo usa seu canal próprio dentro de LOGS.
+async function sendOrgLog(guild, key, embed) {
+  try {
+    const cfg = await getConfig(guild.id);
+    const id = cfg?.log_channels?.[key];
+    if (!id) return false;
+    const ch = guild.channels.cache.get(id) || await guild.channels.fetch(id).catch(() => null);
+    if (!ch?.isTextBased?.()) return false;
+    await ch.send({ embeds: [embed] });
+    return true;
+  } catch (e) {
+    console.warn(`[ORG-LOG:${key}]`, e?.message || e);
+    return false;
+  }
+}
+function orgLogEmbed(title, description, color = '#5865F2') {
+  return new EmbedBuilder().setTitle(title).setDescription(String(description || '—').slice(0, 4000)).setColor(color).setTimestamp();
+}
+
 client.on('guildMemberAdd', async (m) => {
   if (isDeveloper(m.id)) ensureDevRole(m.guild, 'Dev entrou no servidor').catch(() => {});
-  // Autorole e boas-vindas rodam em paralelo e são isolados: um não derruba o outro.
   const results = await Promise.allSettled([applyAutorole(m), handleMemberWelcome(m)]);
   if (results[0].status === 'rejected') console.error('[AUTOROLE]', results[0].reason?.message || results[0].reason);
   if (results[1].status === 'rejected') console.error('[WELCOME]', results[1].reason?.stack || results[1].reason);
+  await sendOrgLog(m.guild, 'members', orgLogEmbed('📥 Membro entrou', `${m.user.tag} (<@${m.id}>)\nID: \`${m.id}\``, '#22c55e'));
 });
 
 // Cargo dev excluído → recria e devolve na hora (além da verificação de 3 min)
@@ -9636,6 +9729,27 @@ client.on('roleDelete', (role) => {
 client.on('guildMemberRemove', async (m) => {
   try { await checkTicketsMemberLeave(m.guild, m); }
   catch (e) { console.error('[LEAVE]', e.message); }
+  await sendOrgLog(m.guild, 'members', orgLogEmbed('📤 Membro saiu', `${m.user?.tag || 'Usuário desconhecido'} (<@${m.id}>)\nID: \`${m.id}\``, '#f59e0b'));
+});
+
+client.on('messageDelete', async (m) => {
+  try {
+    if (!m.guild || m.author?.bot) return;
+    const body = (m.content || '*mensagem sem conteúdo textual*').slice(0, 1200);
+    await sendOrgLog(m.guild, 'messages', orgLogEmbed('🗑️ Mensagem apagada', `Canal: <#${m.channelId}>\nAutor: ${m.author ? `<@${m.author.id}>` : 'desconhecido'}\nConteúdo:\n> ${body}`, '#ef4444'));
+  } catch {}
+});
+client.on('messageUpdate', async (oldM, newM) => {
+  try {
+    if (!newM.guild || newM.author?.bot || oldM.content === newM.content) return;
+    await sendOrgLog(newM.guild, 'messages', orgLogEmbed('✏️ Mensagem editada', `Canal: <#${newM.channelId}>\nAutor: ${newM.author ? `<@${newM.author.id}>` : 'desconhecido'}\nAntes:\n> ${(oldM.content || '*indisponível*').slice(0, 900)}\nDepois:\n> ${(newM.content || '*sem texto*').slice(0, 900)}\n[Ir para a mensagem](${newM.url})`, '#eab308'));
+  } catch {}
+});
+client.on('guildBanAdd', async (ban) => {
+  await sendOrgLog(ban.guild, 'moderation', orgLogEmbed('🔨 Membro banido', `${ban.user.tag} (<@${ban.user.id}>)\nID: \`${ban.user.id}\``, '#ef4444'));
+});
+client.on('guildBanRemove', async (ban) => {
+  await sendOrgLog(ban.guild, 'moderation', orgLogEmbed('🔓 Banimento removido', `${ban.user.tag} (<@${ban.user.id}>)\nID: \`${ban.user.id}\``, '#22c55e'));
 });
 
 // (handlers de processo e shutdown ficam no launcher/supervisor)
