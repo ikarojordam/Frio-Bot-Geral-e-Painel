@@ -1033,6 +1033,8 @@ async function openServerDetail(gid) {
         </button>
       </div>` : ''}`;
   refreshIcons(body);
+  mountFrioStore(body,gid);
+  mountFrioStoreExtras(body,gid);
 
   $('btnOpenDevServerActions')?.addEventListener('click', () => {
     closeModal('modalServer');
@@ -2376,3 +2378,48 @@ if (window.location.hostname !== 'localhost' && window.location.hostname !== '12
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){ $id('sidebar')?.classList.remove('open');$id('sidebarOverlay')?.classList.remove('active');if(!document.querySelector('.modal.active')&&!document.querySelector('.drawer.active'))document.body.classList.remove('no-scroll');}});
   $id('sidebarOverlay')?.addEventListener('click',()=>{ $id('sidebar')?.classList.remove('open');$id('sidebarOverlay')?.classList.remove('active');document.body.classList.remove('no-scroll');});
 })();
+
+// Loja FrioBots: conteúdo adicionado à modal de servidor; não substitui páginas existentes.
+async function mountFrioStore(body,gid){
+ const root=document.createElement('section');root.style.marginTop='22px';root.innerHTML=`<h3>FrioBots Store · Gestão web</h3><p class="hint">Produtos, estoque, cupons, categorias e pedidos sincronizados com o bot.</p><div id="frioStoreContent">Carregando...</div>`;body.appendChild(root);
+ const esc=escapeHtml;
+ const load=async()=>{
+  const r=await api(`/api/me/servers/${gid}/store/overview`);
+  const target=root.querySelector('#frioStoreContent');if(!r.ok){target.textContent=r.error||'Não foi possível carregar a loja';return;}
+  target.innerHTML=`<div class="stats-grid"><div class="stat-card"><div class="stat-body"><div class="stat-value">${r.products.length}</div><div class="stat-label">Produtos</div></div></div><div class="stat-card"><div class="stat-body"><div class="stat-value">${r.metrics.orders}</div><div class="stat-label">Pedidos recentes</div></div></div><div class="stat-card"><div class="stat-body"><div class="stat-value">R$ ${r.metrics.revenue.toFixed(2)}</div><div class="stat-label">Receita de pedidos entregues (amostra)</div></div></div></div>
+  <h4>Catálogo</h4><div style="max-height:260px;overflow:auto">${r.products.map(x=>`<p><strong>#${x.id} · ${esc(x.name)}</strong> · R$ ${Number(x.price).toFixed(2)} · disponíveis: ${x.stock.available||0} · ${x.active?'Ativo':'Inativo'}</p>`).join('')||'<p>Sem produtos.</p>'}</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px"><button class="btn btn-primary" data-store="product">Novo produto</button><button class="btn" data-store="category">Nova categoria</button><button class="btn" data-store="stock">Adicionar estoque</button><button class="btn" data-store="coupon">Criar cupom</button><button class="btn" data-store="refresh">Atualizar</button></div>
+  <h4 style="margin-top:16px">Pedidos recentes</h4><div style="max-height:180px;overflow:auto">${r.orders.slice(0,20).map(x=>`<p>#${esc(String(x.id))} · ${esc(x.status)} · R$ ${Number(x.total||0).toFixed(2)}</p>`).join('')||'<p>Sem pedidos.</p>'}</div>`;
+  target.querySelectorAll('[data-store]').forEach(btn=>btn.addEventListener('click',async()=>{
+   const mode=btn.dataset.store;if(mode==='refresh')return load();let path='',body={};
+   if(mode==='product') {const name=prompt('Nome do produto:');if(!name)return;const price=prompt('Preço em reais (ex.: 9.90):');if(price===null)return;const description=prompt('Descrição:')||'';body={name,price:Number(price.replace(',','.')),description};path='products';}
+   if(mode==='category'){const name=prompt('Nome da categoria:');if(!name)return;body={name};path='categories';}
+   if(mode==='stock'){const product_id=prompt('ID do produto (visível na central do bot):');if(!product_id)return;const items=prompt('Itens do estoque, um por linha:');if(!items)return;body={product_id,items};path='stock';}
+   if(mode==='coupon'){const code=prompt('Código do cupom:');if(!code)return;const value=prompt('Desconto em porcentagem (1–100):');if(value===null)return;body={code,value:Number(value.replace(',','.')),type:'percent'};path='coupons';}
+   const resp=await api(`/api/me/servers/${gid}/store/${path}`,{method:'POST',body});if(!resp.ok)return toast(resp.error||'Falha ao salvar','error');toast('Alteração salva','success');await load();
+  }));
+ };
+ await load();
+}
+
+// Extensões web: identidade, campanhas, fidelidade e avaliações.
+async function mountFrioStoreExtras(body,gid){
+ const div=document.createElement('section');div.style.marginTop='22px';div.innerHTML='<h3>FrioBots · Identidade, marketing e fidelidade</h3><div data-frio-extras>Carregando...</div>';body.appendChild(div);
+ const load=async()=>{
+ const data=await api(`/api/me/servers/${gid}/store/extras`);const el=div.querySelector('[data-frio-extras]');
+ if(!data.ok){el.textContent=data.error||'Falha ao carregar (aplique o SQL V5).';return;}
+ const safe=escapeHtml, profile=data.profile||{};
+ el.innerHTML=`<div class="card" style="padding:15px;margin-bottom:12px"><h4>Identidade da loja</h4><p><strong>${safe(profile.display_name||'Minha Loja')}</strong> · ${safe(profile.brand_color||'#69C9FF')}</p><p>${safe(profile.description||'Sem descrição')}</p><button class="btn" data-fs="profile">Editar identidade</button></div>
+ <div class="card" style="padding:15px;margin-bottom:12px"><h4>Campanhas de marketing</h4><p>Campanhas cadastradas para organização e planejamento; descontos não são aplicados automaticamente ao checkout.</p>${data.campaigns.slice(0,12).map(x=>`<p><strong>${safe(x.title)}</strong> · ${Number(x.discount_percent)}% · ${x.active?'Ativa':'Pausada'} <button class="btn" data-toggle-campaign="${x.id}" data-next="${!x.active}">${x.active?'Pausar':'Ativar'}</button></p>`).join('')||'<p>Sem campanhas.</p>'}<button class="btn" data-fs="campaign">Criar campanha</button></div>
+ <div class="card" style="padding:15px;margin-bottom:12px"><h4>Programa de pontos</h4>${data.loyalty.slice(0,10).map(x=>`<p>${safe(x.user_id)} · ${Number(x.points)} pontos · ${Number(x.purchases)} compras</p>`).join('')||'<p>Sem clientes cadastrados.</p>'}<button class="btn" data-fs="loyalty">Ajustar pontos</button></div>
+ <div class="card" style="padding:15px"><h4>Avaliações registradas</h4>${data.reviews.slice(0,20).map(x=>`<p>${'★'.repeat(Math.min(5,Number(x.rating)||0))} · pedido ${safe(String(x.order_id))} · ${safe(x.comment||'Sem comentário')}</p>`).join('')||'<p>Ainda não há avaliações.</p>'}</div>`;
+ el.querySelectorAll('[data-fs]').forEach(btn=>btn.onclick=async()=>{
+ const mode=btn.dataset.fs;let path='',payload={};
+ if(mode==='profile') {const display_name=prompt('Nome da loja:',profile.display_name||'');if(display_name===null)return;const description=prompt('Descrição da loja:',profile.description||'');if(description===null)return;const brand_color=prompt('Cor hexadecimal:',profile.brand_color||'#69C9FF');if(brand_color===null)return;path='profile';payload={display_name,description,brand_color};}
+ if(mode==='campaign'){const title=prompt('Nome da campanha:');if(!title)return;const discount_percent=prompt('Desconto percentual (planejado):');if(discount_percent===null)return;const starts_at=prompt('Início ISO (ex.: 2026-12-01T12:00:00-03:00):');if(!starts_at)return;const ends_at=prompt('Fim ISO:');if(!ends_at)return;path='campaigns';payload={title,discount_percent:Number(discount_percent),starts_at,ends_at};}
+ if(mode==='loyalty'){const user_id=prompt('ID Discord do cliente:');if(!user_id)return;const delta=prompt('Quantidade de pontos (negativo para reduzir):');if(delta===null)return;path='loyalty/adjust';payload={user_id,delta:Number(delta)};}
+ const r=await api(`/api/me/servers/${gid}/store/${path}`,{method:'POST',body:payload});if(!r.ok)return toast(r.error||'Erro ao salvar','error');toast('Atualizado','success');await load();
+ });
+ el.querySelectorAll('[data-toggle-campaign]').forEach(btn=>btn.onclick=async()=>{const r=await api(`/api/me/servers/${gid}/store/campaigns/${btn.dataset.toggleCampaign}/status`,{method:'POST',body:{active:btn.dataset.next==='true'}});if(!r.ok)return toast(r.error||'Erro','error');await load();});
+ };await load();
+}
