@@ -15,6 +15,7 @@
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+<link rel="stylesheet" href="/assets/frio-visual-v6.css?v=6">
 </head>
 <body>
 <noscript><p style="padding:24px;color:#fff;font-family:sans-serif">Ative o JavaScript para usar o Frio Painel.</p></noscript>
@@ -62,7 +63,7 @@
 
     <a href="/app" class="topbar-brand">
       <img src="/assets/logo.webp" width="40" height="40" alt="Frio Painel">
-      <span>Frio Painel</span>
+      <span class="frio-brand-word">FrioBots Painel<small>FrioMortal Developer</small></span>
     </a>
 
     <button class="topbar-search" id="btnCmdk" title="Buscar (Ctrl+K)">
@@ -147,6 +148,7 @@
   <main class="app-main">
     <div class="app-main-inner">
 
+      <div class="frio-signature-strip" aria-label="Identidade da plataforma"><span><strong>FRIOBOTS</strong> · Plataforma de gerenciamento e loja</span><span class="frio-signature-mark">Powered by FrioMortal Developer</span></div>
       <!-- ═══════════ PAGE: DASHBOARD ═══════════ -->
       <section class="page active" id="page-dashboard">
         <div class="page-head">
@@ -156,6 +158,15 @@
           </div>
         </div>
 
+        <div class="frio-tiers-overview" aria-label="Níveis de assinatura disponíveis">
+ <div class="frio-tiers-head"><div><h2>Assinaturas FrioBots</h2><p>Confira os níveis de licença. A liberação efetiva depende da key vinculada à sua conta.</p></div><span class="frio-signature-mark">7, 15 ou 30 dias</span></div>
+ <div class="frio-tiers-grid">
+  <article class="frio-tier basic"><span class="frio-tier-label">Essencial</span><h3>Basic</h3><p>Acesso inicial aos recursos disponíveis para sua licença.</p><div class="frio-duration"><span>7 dias</span><span>15 dias</span><span>30 dias</span></div></article>
+  <article class="frio-tier premium"><span class="frio-tier-label">Expansão</span><h3>Premium</h3><p>Plano para ampliar sua operação conforme a key ativa.</p><div class="frio-duration"><span>7 dias</span><span>15 dias</span><span>30 dias</span></div></article>
+  <article class="frio-tier ultra"><span class="frio-tier-label">Avançado</span><h3>Ultra</h3><p>Nível avançado com módulos autorizados pela licença.</p><div class="frio-duration"><span>7 dias</span><span>15 dias</span><span>30 dias</span></div></article>
+  <article class="frio-tier unlimited"><span class="frio-tier-label">Completo</span><h3>Unlimited</h3><p>Nível máximo de licença, conforme suas permissões.</p><div class="frio-duration"><span>7 dias</span><span>15 dias</span><span>30 dias</span></div></article>
+ </div>
+</div>
         <div class="card card-status" id="cardBotStatus">
           <div class="flex-between gap" style="flex-wrap:wrap">
             <div class="flex-start gap">
@@ -881,8 +892,8 @@
 <script src="/assets/app.js?v=20261020" defer></script>
 
 <footer class="frio-global-footer" aria-label="Contato e direitos autorais">
-  <span class="frio-footer-brand">FRIO PAINEL</span>
-  <span>© <span class="frio-current-year"></span> Frio Painel · Todos os direitos reservados.</span>
+  <span class="frio-footer-brand">FRIOBOTS · FRIO MORTAL DEVELOPER</span>
+  <span>© <span class="frio-current-year"></span> FrioBots · Powered by FrioMortal Developer · Todos os direitos reservados.</span>
   <a href="/terms">Termos e direitos autorais</a>
   <a href="/privacy">Privacidade</a>
   <a href="mailto:friomortalcoracaogelado@gmail.com">Suporte e contato</a>
