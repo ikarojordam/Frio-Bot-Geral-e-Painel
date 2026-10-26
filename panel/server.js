@@ -1497,6 +1497,126 @@ app.get('/api/me/servers/:guildId/orders', requireAuth, async (req, res) => {
   } catch (e) { return genericError(res); }
 });
 
+// FRIOBOTS STORE WEB — APIs com isolamento por servidor e CSRF
+const storeAllowed = async (req,res) => {
+  if (!(await canAccessGuild(req, req.params.guildId))) {
+    res.status(403).json({ok:false,error:'Sem acesso a este servidor'}); return false;
+  }
+  return true;
+};
+const storeError = (res, error) => res.status(400).json({ok:false,error: error?.message || 'Operação não concluída'});
+const storeId = v => /^\d{1,15}$/.test(String(v||'')) ? Number(v) : null;
+const storeName = v => typeof v === 'string' ? v.trim().slice(0,120) : '';
+app.get('/api/me/servers/:guildId/store/overview',requireAuth,async(req,res)=>{
+  try {
+    if (!(await storeAllowed(req,res))) return;
+    const gid=req.params.guildId;
+    const [pr,ct,co,od] = await Promise.all([
+      supaAdmin.from('products').select('id,name,price,active,category_id,delivery_type').eq('guild_id',gid).order('id',{ascending:false}).limit(250),
+      supaAdmin.from('categories').select('*').eq('guild_id',gid).limit(100),
+      supaAdmin.from('coupons').select('id,code,type,value,max_uses,uses').eq('guild_id',gid).limit(100),
+      supaAdmin.from('orders').select('id,status,total,created_at,user_id').eq('guild_id',gid).order('id',{ascending:false}).limit(250)
+    ]);
+    for(const r of [pr,ct,co,od]) if(r.error) return storeError(res,r.error);
+    const ids=(pr.data||[]).map(x=>x.id);
+    let inv=[];
+    if(ids.length){const r=await supaAdmin.from('inventory').select('id,product_id,status').eq('guild_id',gid).in('product_id',ids).limit(3000);if(r.error) return storeError(res,r.error);inv=r.data||[];}
+    const counts={};for(const i of inv){counts[i.product_id] ||= {available:0,sold:0};counts[i.product_id][i.status]=(counts[i.product_id][i.status]||0)+1;}
+    const orders=od.data||[];
+    res.json({ok:true,products:(pr.data||[]).map(x=>({...x,stock:counts[x.id]||{available:0,sold:0}})),categories:ct.data||[],coupons:co.data||[],orders,metrics:{orders:orders.length,delivered:orders.filter(o=>o.status==='delivered').length,revenue:orders.filter(o=>o.status==='delivered').reduce((n,o)=>n+Number(o.total||0),0)}});
+  }catch(e){return genericError(res)}
+});
+app.post('/api/me/servers/:guildId/store/products',requireAuth,csrfProtect,async(req,res)=>{
+ try{if(!(await storeAllowed(req,res)))return;
+ const b=req.body||{};const name=storeName(b.name),price=Number(b.price);
+ if(!name||!Number.isFinite(price)||price<0||price>1e7)return res.status(400).json({ok:false,error:'Nome ou preço inválido'});
+ const categoryId=b.category_id?storeId(b.category_id):null;
+ if(b.category_id&&!categoryId)return res.status(400).json({ok:false,error:'Categoria inválida'});
+ if(categoryId){const c=await supaAdmin.from('categories').select('id').eq('guild_id',req.params.guildId).eq('id',categoryId).maybeSingle();if(!c.data)return res.status(400).json({ok:false,error:'Categoria não pertence ao servidor'});}
+ const payload={name,price,description:storeName(b.description).slice(0,120),active:b.active!==false,delivery_type:['key','text','file','link','role','manual'].includes(b.delivery_type)?b.delivery_type:'key',category_id:categoryId};
+ let q=supaAdmin.from('products');
+ if(b.id){const id=storeId(b.id);if(!id)return res.status(400).json({ok:false,error:'Produto inválido'});q=q.update(payload).eq('id',id).eq('guild_id',req.params.guildId);}else{payload.guild_id=req.params.guildId;payload.slug=name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').slice(0,38)+'-'+Date.now().toString(36);q=q.insert(payload);}
+ const r=await q.select('id').single();if(r.error)return storeError(res,r.error);
+ await audit(req,'store_product_write',{metadata:{guild_id:req.params.guildId,product_id:r.data.id}});res.json({ok:true,id:r.data.id});
+ }catch(e){return genericError(res)}
+});
+app.post('/api/me/servers/:guildId/store/categories',requireAuth,csrfProtect,async(req,res)=>{
+ try{if(!(await storeAllowed(req,res)))return;const name=storeName(req.body?.name);if(!name)return res.status(400).json({ok:false,error:'Nome obrigatório'});
+ const r=await supaAdmin.from('categories').insert({guild_id:req.params.guildId,name,emoji:null}).select('id').single();if(r.error)return storeError(res,r.error);res.json({ok:true,id:r.data.id});
+ }catch(e){return genericError(res)}
+});
+app.post('/api/me/servers/:guildId/store/coupons',requireAuth,csrfProtect,async(req,res)=>{
+ try{if(!(await storeAllowed(req,res)))return;const b=req.body||{};const code=storeName(b.code).toUpperCase();const type=b.type==='fixed'?'fixed':'percent';const value=Number(b.value),max=Number(b.max_uses||0);
+ if(!/^[A-Z0-9_-]{3,30}$/.test(code)||!Number.isFinite(value)||value<=0||(type==='percent'&&value>100)||!Number.isInteger(max)||max<0||max>1000000)return res.status(400).json({ok:false,error:'Cupom inválido'});
+ const r=await supaAdmin.from('coupons').upsert({guild_id:req.params.guildId,code,type,value,max_uses:max},{onConflict:'guild_id,code'});if(r.error)return storeError(res,r.error);res.json({ok:true});
+ }catch(e){return genericError(res)}
+});
+app.post('/api/me/servers/:guildId/store/stock',requireAuth,csrfProtect,rateLimit(15,60*1000),async(req,res)=>{
+ try{if(!(await storeAllowed(req,res)))return;const id=storeId(req.body?.product_id);if(!id)return res.status(400).json({ok:false,error:'Produto inválido'});
+ const product=await supaAdmin.from('products').select('id').eq('guild_id',req.params.guildId).eq('id',id).maybeSingle();if(!product.data)return res.status(404).json({ok:false,error:'Produto não encontrado'});
+ const items=String(req.body?.items||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);if(!items.length||items.length>100||items.some(x=>x.length>3000))return res.status(400).json({ok:false,error:'Envie de 1 a 100 itens, com até 3000 caracteres cada'});
+ const r=await supaAdmin.from('inventory').insert(items.map(content=>({guild_id:req.params.guildId,product_id:id,content,status:'available'})));if(r.error)return storeError(res,r.error);
+ await audit(req,'store_stock_add',{metadata:{guild_id:req.params.guildId,product_id:id,count:items.length}});res.json({ok:true,added:items.length});
+ }catch(e){return genericError(res)}
+});
+
+// FRIOBOTS STORE V5 — extensões não destrutivas. Dados exclusivos de cada guild.
+const storeText=(s,n=500)=>typeof s==='string'?s.trim().slice(0,n):'';
+const storeAudit=async (gid,actor,action,metadata={})=>{try{await supaAdmin.from('frio_store_audit').insert({guild_id:gid,actor_id:String(actor||''),action,metadata});}catch(_){}};
+app.get('/api/me/servers/:guildId/store/extras',requireAuth,async(req,res)=>{
+ try{if(!(await storeAllowed(req,res)))return;const gid=req.params.guildId;
+ const [profile,loyalty,reviews,campaigns]=await Promise.all([
+ supaAdmin.from('frio_store_profiles').select('*').eq('guild_id',gid).maybeSingle(),
+ supaAdmin.from('frio_store_loyalty').select('user_id,points,purchases').eq('guild_id',gid).order('points',{ascending:false}).limit(30),
+ supaAdmin.from('frio_store_reviews').select('id,order_id,user_id,rating,comment,created_at').eq('guild_id',gid).order('id',{ascending:false}).limit(50),
+ supaAdmin.from('frio_store_campaigns').select('*').eq('guild_id',gid).order('created_at',{ascending:false}).limit(100)]);
+ for(const r of [profile,loyalty,reviews,campaigns])if(r.error)return storeError(res,r.error);
+ res.json({ok:true,profile:profile.data||null,loyalty:loyalty.data||[],reviews:reviews.data||[],campaigns:campaigns.data||[]});
+ }catch(e){return genericError(res)}
+});
+app.post('/api/me/servers/:guildId/store/profile',requireAuth,csrfProtect,async(req,res)=>{
+ try{if(!(await storeAllowed(req,res)))return;const gid=req.params.guildId,b=req.body||{};
+ const display_name=storeText(b.display_name,80),description=storeText(b.description,800),brand_color=storeText(b.brand_color,7);
+ if(!display_name||!/^#[0-9a-fA-F]{6}$/.test(brand_color))return res.status(400).json({ok:false,error:'Nome ou cor inválidos'});
+ const payload={guild_id:gid,display_name,description,brand_color,updated_at:new Date().toISOString()};
+ const r=await supaAdmin.from('frio_store_profiles').upsert(payload,{onConflict:'guild_id'});if(r.error)return storeError(res,r.error);
+ await storeAudit(gid,req.user?.id,'profile_update');res.json({ok:true});
+ }catch(e){return genericError(res)}
+});
+app.post('/api/me/servers/:guildId/store/campaigns',requireAuth,csrfProtect,async(req,res)=>{
+ try{if(!(await storeAllowed(req,res)))return;const gid=req.params.guildId,b=req.body||{};
+ const title=storeText(b.title,100),description=storeText(b.description,500),discount=Number(b.discount_percent),start=Date.parse(b.starts_at),end=Date.parse(b.ends_at);
+ if(!title||!Number.isFinite(discount)||discount<0||discount>100||!Number.isFinite(start)||!Number.isFinite(end)||start>=end)return res.status(400).json({ok:false,error:'Campanha inválida'});
+ const payload={guild_id:gid,title,description,discount_percent:discount,starts_at:new Date(start).toISOString(),ends_at:new Date(end).toISOString(),active:b.active!==false};
+ const r=await supaAdmin.from('frio_store_campaigns').insert(payload).select('id').single();if(r.error)return storeError(res,r.error);
+ await storeAudit(gid,req.user?.id,'campaign_created',{id:r.data.id});res.json({ok:true,id:r.data.id});
+ }catch(e){return genericError(res)}
+});
+app.post('/api/me/servers/:guildId/store/campaigns/:id/status',requireAuth,csrfProtect,async(req,res)=>{
+ try{if(!(await storeAllowed(req,res)))return;
+ const id=storeId(req.params.id);if(!id||typeof req.body?.active!=='boolean')return res.status(400).json({ok:false,error:'Dados inválidos'});
+ const r=await supaAdmin.from('frio_store_campaigns').update({active:req.body.active}).eq('guild_id',req.params.guildId).eq('id',id).select('id');if(r.error)return storeError(res,r.error);
+ if(!r.data?.length)return res.status(404).json({ok:false,error:'Campanha não encontrada'});
+ res.json({ok:true});}catch(e){return genericError(res)}
+});
+app.post('/api/me/servers/:guildId/store/products/:id/status',requireAuth,csrfProtect,async(req,res)=>{
+ try{if(!(await storeAllowed(req,res)))return;
+ const id=storeId(req.params.id);if(!id||typeof req.body?.active!=='boolean')return res.status(400).json({ok:false,error:'Dados inválidos'});
+ const r=await supaAdmin.from('products').update({active:req.body.active}).eq('guild_id',req.params.guildId).eq('id',id).select('id');if(r.error)return storeError(res,r.error);
+ if(!r.data?.length)return res.status(404).json({ok:false,error:'Produto não encontrado'});
+ await storeAudit(req.params.guildId,req.user?.id,'product_status',{id,active:req.body.active});res.json({ok:true});
+ }catch(e){return genericError(res)}
+});
+app.post('/api/me/servers/:guildId/store/loyalty/adjust',requireAuth,csrfProtect,rateLimit(10,60000),async(req,res)=>{
+ try{if(!(await storeAllowed(req,res)))return;
+ const gid=req.params.guildId,user_id=storeText(req.body?.user_id,25),delta=Number(req.body?.delta);
+ if(!/^\d{15,22}$/.test(user_id)||!Number.isSafeInteger(delta)||Math.abs(delta)>100000)return res.status(400).json({ok:false,error:'Usuário ou pontos inválidos'});
+ const old=await supaAdmin.from('frio_store_loyalty').select('points,purchases').eq('guild_id',gid).eq('user_id',user_id).maybeSingle();if(old.error)return storeError(res,old.error);
+ const next=(old.data?.points||0)+delta;if(next<0)return res.status(400).json({ok:false,error:'Pontos insuficientes'});
+ const r=await supaAdmin.from('frio_store_loyalty').upsert({guild_id:gid,user_id,points:next,purchases:old.data?.purchases||0,updated_at:new Date().toISOString()},{onConflict:'guild_id,user_id'});if(r.error)return storeError(res,r.error);
+ await storeAudit(gid,req.user?.id,'loyalty_adjust',{user_id,delta});res.json({ok:true,points:next});
+ }catch(e){return genericError(res)}
+});
 app.post('/api/me/servers/:guildId/take-members', requireAdmin, csrfProtect, rateLimit(5, 60 * 60 * 1000), async (req, res) => {
   try {
     if (!(await canAccessGuild(req, req.params.guildId))) return res.status(403).json({ ok: false, error: 'Sem acesso' });
