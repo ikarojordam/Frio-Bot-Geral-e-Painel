@@ -5842,6 +5842,8 @@ function buildTicketPanelComponents(panel) {
   return [new ActionRowBuilder().addComponents(menu)];
 }
 
+const ticketGemini = require('./ticket-gemini')({ client, supabase, isTicketStaff, isAdmin });
+
 // ═══════════════════════════════════════════════════════════
 // BOTÕES INTERNOS DA THREAD
 // ═══════════════════════════════════════════════════════════
@@ -5870,7 +5872,7 @@ function buildTicketInnerButtons(threadId, opts = {}) {
     new ButtonBuilder().setCustomId(`tkt:delete:${threadId}`).setLabel('Excluir').setEmoji(E.x).setStyle(ButtonStyle.Danger),
   );
 
-  return [row1, row2, row3];
+  return [row1, row2, row3, ticketGemini.makeRow(threadId)];
 }
 
 async function refreshTicketButtons(thread, td) {
@@ -9679,11 +9681,15 @@ async function admPanelTickets(guild) {
         { name: 'Abertos', value: `${ab}`, inline: true },
         { name: 'Fechados', value: `${(count || 0) - ab}`, inline: true },
         { name: 'Total', value: `${count || 0}`, inline: true },
+        { name: 'IA de atendimento', value: ticketGemini.guildStatus(guild.id) },
       )],
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('adm_ticket_panels').setLabel('Gerenciar Painéis').setEmoji(E.modo).setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('adm_ticket_create').setLabel('Criar Painel').setEmoji(E.adicionar).setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('frioai:global').setLabel('Ligar / Desligar IA').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('frioai:teach').setLabel('Ensinar IA').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('frioai:knowledge').setLabel('Base de conhecimento').setStyle(ButtonStyle.Secondary),
       ),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('adm_back').setLabel('Voltar').setEmoji(E.voltar).setStyle(ButtonStyle.Secondary),
