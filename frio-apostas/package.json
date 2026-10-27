@@ -1,12 +1,37 @@
 {
-  "name": "friobots-discloud-seguro",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Bot Discord de uso geral — Frio Mortal Developer",
-  "author": "Frio Mortal Developer",
-  "license": "UNLICENSED",
-  "engines": {"node": ">=20"},
+  "name": "frio-apostas",
+  "version": "2.0.8",
+  "description": "BACK BOT — Sistema de apostas FF com painel de automações (multibot/frota)",
   "main": "index.js",
-  "scripts": {"start": "node index.js", "check": "node --check index.js"},
-  "dependencies": {"discord.js": "14.16.3", "dotenv": "^16.4.5"}
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "fleet": "node fleet.js",
+    "test": "node --test --test-force-exit tests/*.test.js",
+    "check": "node --check apostas.js && node --check fleet.js && node --check bot-runtime.js && node --check anti-raid-system.js",
+    "fleet:cli": "node scripts/fleet-cli.js",
+    "fleet:ecosystem": "node scripts/generate-ecosystem.js",
+    "start:apostas": "node apostas.js"
+  },
+  "dependencies": {
+    "@discordjs/voice": "0.18.0",
+    "@supabase/supabase-js": "^2.45.4",
+    "discord.js": "14.16.3",
+    "dotenv": "^16.4.5",
+    "play-dl": "^1.9.7",
+    "qrcode": "^1.5.3",
+    "ws": "8.18.0"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "free-fire",
+    "apostas",
+    "multibot"
+  ],
+  "author": "FrioBot",
+  "license": "UNLICENSED",
+  "private": true
 }
