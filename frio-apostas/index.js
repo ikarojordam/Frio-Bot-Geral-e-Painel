@@ -5,6 +5,19 @@
  */
 'use strict';
 require('dotenv').config();
+// Render Web Service: expõe uma porta HTTP sem interferir na conexão do Discord.
+const http = require('node:http');
+const port = Number(process.env.PORT || 3000);
+const healthServer = http.createServer((req, res) => {
+  if (req.url !== '/' && req.url !== '/health') {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Not found');
+  }
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('FrioBot HTTP online');
+});
+healthServer.listen(port, '0.0.0.0', () => console.log(`[FrioBot] HTTP ativo na porta ${port}`));
+healthServer.on('error', err => { console.error('[FrioBot] Erro HTTP:', err); process.exitCode = 1; });
 const { Client, GatewayIntentBits, ActivityType, REST, Routes } = require('discord.js');
 
 const token = process.env.DISCORD_TOKEN;
