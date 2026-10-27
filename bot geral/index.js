@@ -5842,6 +5842,21 @@ function buildTicketPanelComponents(panel) {
   return [new ActionRowBuilder().addComponents(menu)];
 }
 
+// FRIOMORTAL_BRANDING_V1 — assinatura consistente nos embeds sem alterar suas informações.
+// Instalada uma única vez, antes de construir os painéis de tickets.
+if (!EmbedBuilder.prototype.__frioMortalBranded) {
+  const originalEmbedToJSON = EmbedBuilder.prototype.toJSON;
+  EmbedBuilder.prototype.toJSON = function (...args) {
+    const data = originalEmbedToJSON.apply(this, args);
+    const signature = 'Powered by FrioMortal';
+    const current = String(data.footer?.text || '');
+    if (!current.includes(signature)) {
+      data.footer = { ...data.footer, text: current ? `${current.slice(0, 2040 - signature.length)} • ${signature}` : signature };
+    }
+    return data;
+  };
+  Object.defineProperty(EmbedBuilder.prototype, '__frioMortalBranded', { value: true });
+}
 const ticketGemini = require('./ticket-gemini')({ client, supabase, isTicketStaff, isAdmin });
 
 // ═══════════════════════════════════════════════════════════
